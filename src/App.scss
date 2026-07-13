@@ -12,8 +12,12 @@
   --oscillon-bg: #000;
   --oscillon-dim: #565656;
   --oscillon-bright: #8f8f8f;
+  --oscillon-strong: #fff;
+  --oscillon-strong-contrast: #000;
   --oscillon-line: rgba(255, 255, 255, 0.16);
   --oscillon-line-hover: rgba(255, 255, 255, 0.4);
+  --oscillon-panel: rgba(0, 0, 0, 0.85);
+  --oscillon-progress: rgba(255, 255, 255, 0.35);
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -26,6 +30,19 @@
   font-size: 11px;
   letter-spacing: 0.06em;
   text-align: left;
+
+  // proof mode: the piece sits on paper, so the chrome flips to print
+  &--proof {
+    background: #faf8f3;
+    --oscillon-dim: #8d877c;
+    --oscillon-bright: #55504a;
+    --oscillon-strong: #1c1a17;
+    --oscillon-strong-contrast: #faf8f3;
+    --oscillon-line: rgba(0, 0, 0, 0.2);
+    --oscillon-line-hover: rgba(0, 0, 0, 0.5);
+    --oscillon-panel: rgba(250, 248, 243, 0.92);
+    --oscillon-progress: rgba(0, 0, 0, 0.3);
+  }
 
   &__canvas {
     display: block;
@@ -79,7 +96,7 @@
     cursor: pointer;
 
     &:hover:not(:disabled) {
-      color: #fff;
+      color: var(--oscillon-strong);
       border-color: var(--oscillon-line-hover);
     }
 
@@ -96,7 +113,7 @@
 
   &__inks {
     padding: var(--spacing-2x);
-    background: rgba(0, 0, 0, 0.85);
+    background: var(--oscillon-panel);
     border: 1px solid var(--oscillon-line);
   }
 
@@ -132,7 +149,7 @@
     }
 
     &--selected {
-      box-shadow: 0 0 0 2px #fff;
+      box-shadow: 0 0 0 2px var(--oscillon-strong);
 
       &::after {
         content: attr(data-order);
@@ -141,9 +158,9 @@
         right: -6px;
         width: 13px;
         height: 13px;
-        background: #fff;
+        background: var(--oscillon-strong);
         border-radius: 50%;
-        color: #000;
+        color: var(--oscillon-strong-contrast);
         font-size: 9px;
         line-height: 13px;
         text-align: center;
@@ -175,7 +192,7 @@
     bottom: 0;
     width: 100%;
     height: 2px;
-    background: rgba(255, 255, 255, 0.35);
+    background: var(--oscillon-progress);
     transform: scaleX(var(--oscillon-progress, 0));
     transform-origin: left;
     transition:

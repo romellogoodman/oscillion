@@ -24,10 +24,12 @@ the ground truth.
 `VIEW_SIZE × PRINT_SCALE` = 2400px (≈ 8" at 300 dpi) with 4× the beam
 samples, then downloads:
 
-1. `<base>-print.png` — full-color composite, for reference/proofing.
+1. `<base>-print.png` — full-color emissive composite, for reference.
 2. One greyscale master per separation layer, dark ink on white
-   (`writeMaster`, src/App.jsx:495 — density inverted because the riso
+   (`writeMaster`, src/App.jsx:562 — density inverted because the riso
    reads master darkness as ink coverage).
+3. `<base>-proof.png` — the paper proof (below) at print size; give this
+   to the print shop as the color reference for white stock.
 
 Separation logic:
 
@@ -36,8 +38,25 @@ Separation logic:
   filter-wheel crossfades a sample splats into both adjacent ink bands with
   weights summing to 1 (`wheel`, src/App.jsx:357). Files carry the ink name:
   `...-master-1-fluor-pink.png`.
-- All layers share one auto-exposure (`percentileBands`, src/App.jsx:468) so
+- All layers share one auto-exposure (`percentileBands`, src/App.jsx:535) so
   relative density across drums survives; never expose layers independently.
+
+## Proof view (P) — printing on white paper
+
+The screen composite is emissive (light adds toward white); a riso print on
+white paper is subtractive (ink multiplies toward dark). The proof view
+(`writeProof`, src/App.jsx:587) shows the print: each separation band's
+coverage (same film curve, ~90% max) tints the paper with the ink's
+**reflective** hex, layers multiply, and each drum gets a small
+deterministic misregistration offset derived from the seed. No inks
+selected → all bands proof in riso Black. The whole UI flips to a paper
+theme (`.oscillon--proof`).
+
+Masters are positive (ink = trace) and are already correct for white
+stock. The unbuilt alternative for an emissive look on white paper is a
+knockout print — flood a dark ink field and let the figure stay unprinted
+paper — which is one inverted `writeMaster` away if ever wanted; note riso
+struggles with large flat fields (banding/roller marks).
 
 ## Ink data
 
@@ -52,11 +71,14 @@ Separation logic:
 
 ## At the print shop
 
-Decisions from the original design discussion, so they don't get relitigated:
+Decisions from the design discussions, so they don't get relitigated:
 
-- Fluorescent inks (Fluor Pink, Light Teal, etc.) on the darkest uncoated
-  stock available approximate the emissive look best; deep navy/charcoal
-  stock reads as fading phosphor.
+- **The plan is white paper** (decided 2026-07-13): positive masters, soft
+  ghost/silk exposures whose mid-grey veils become delicate ink washes.
+  Avoid dense blown-out seeds for white stock — hot cores become solid ink
+  slabs.
+- Dark-stock alternative (earlier idea, still valid): fluorescent inks on
+  the darkest uncoated stock approximate the emissive look.
 - Run registration **loose**. Drum misregistration across the edition is a
   feature — each print becomes its own "setting of the knobs," true to
   Laposky's non-repeatability. Don't try to engineer it away.

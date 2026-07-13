@@ -134,14 +134,20 @@ const RISO_COMBOS = [
 
 const inkSlug = (name) => name.toLowerCase().replace(/\s+/g, "-");
 
-// hash carries the whole recipe: #<seed>[/<ink>,<ink>...]
-function buildHash(seed, inkSel) {
-  return `#${seedHex(seed)}${inkSel.length ? "/" + inkSel.join(",") : ""}`;
+// hash carries the whole recipe: #<seed>[,<seed>...][/<ink>,<ink>...]
+// one seed = a single exposure; 4 or 16 seeds = a contact sheet
+function buildHash(seeds, inkSel) {
+  return `#${seeds.map(seedHex).join(",")}${
+    inkSel.length ? "/" + inkSel.join(",") : ""
+  }`;
 }
 
 function parseHash(hash) {
-  const m = /^#([0-9a-f]{1,8})(?:\/(\d+(?:,\d+)*))?$/i.exec(hash);
+  const m = /^#([0-9a-f]{1,8}(?:,[0-9a-f]{1,8})*)(?:\/(\d+(?:,\d+)*))?$/i.exec(
+    hash
+  );
   if (!m) return null;
+  const seeds = m[1].split(",").map((h) => parseInt(h, 16) >>> 0);
   const inks = [];
   if (m[2]) {
     for (const part of m[2].split(",")) {
@@ -156,8 +162,11 @@ function parseHash(hash) {
       }
     }
   }
-  return { seed: parseInt(m[1], 16) >>> 0, inks };
+  return { seeds, inks };
 }
+
+// grid size implied by how many seeds the hash carries
+const gridForSeeds = (count) => (count >= 16 ? 4 : count >= 4 ? 2 : 1);
 
 // ---------------------------------------------------------------- settings
 
@@ -165,59 +174,98 @@ function makeParams(rng) {
   const R = (a, b) => a + rng() * (b - a);
   const RI = (a, b) => Math.floor(R(a, b + 1));
 
-  const cycles = RI(130, 220);
+  // exposure character. Most exposures are ghosts — translucent veils held
+  // in the mid-greys (few visible sweeps), or "silk": so many sweeps with so
+  // little drift that they fuse into smooth membranes. "dense" is the old
+  // tight-fabric look.
+  const ghost = rng() < 0.8;
+  const silk = ghost && rng() < 0.3;
+  const cycles = ghost ? (silk ? RI(240, 520) : RI(12, 80)) : RI(130, 220);
   const T = cycles * TAU;
-  const p = { T, cycles, rot0: R(0, TAU), rotDrift: 0 };
+  const p = { ghost, silk, T, cycles, rot0: R(0, TAU), rotDrift: 0 };
 
   const roll = rng();
-  if (roll < 0.45) {
+  if (ghost && roll < 0.14) {
+    // damped spiral — amplitude decays through the exposure: shell + tail
+    p.mode = "spiral";
+    p.beta = Math.PI / 2 + R(-0.45, 0.45);
+    p.eps = (R(1.5, 7) * TAU) / T; // slow ellipse precession
+    p.decay = R(0.5, 1.3); // shrinks to ~0.3-0.6 radius, never collapses
+    p.wobble = R(0, 0.2);
+    p.wobF = RI(3, 9);
+    p.driftX = R(-0.3, 0.3);
+    p.driftY = R(-0.3, 0.3);
+    p.norm = 0.95 / (1 + p.wobble);
+  } else if (roll < 0.45) {
     // amplitude-modulated circle — torus / flower / shell
     p.mode = "am";
     const classic = rng() < 0.5; // bias toward the torus look
-    p.q = classic ? RI(4, 8) : RI(2, 9); // tube winding
-    p.rho = classic ? R(0.3, 0.5) : R(0.22, 0.65);
+    if (ghost) {
+      p.q = RI(2, 7);
+      p.rho = R(0.25, 0.7);
+      p.eps = (R(1, 5) * TAU) / T; // slow detune -> open sheets
+    } else {
+      p.q = classic ? RI(4, 8) : RI(2, 9); // tube winding
+      p.rho = classic ? R(0.3, 0.5) : R(0.22, 0.65);
+      p.eps = (R(4, 18) * TAU) / T; // modulator detune -> precession
+    }
     p.gam = classic ? (Math.PI / 2) * R(0.85, 1.15) : R(0, Math.PI);
     p.beta = Math.PI / 2 + R(-0.35, 0.35);
-    p.eps = (R(4, 18) * TAU) / T; // modulator detune -> precession
     p.phm = R(0, TAU);
     p.norm = 1 / (1 + p.rho);
   } else if (roll < 0.78) {
     // lissajous with slow precession
     p.mode = "liss";
-    p.a = RI(1, 5);
-    p.b = RI(1, 5);
-    if (p.b === p.a) p.b = (p.a % 5) + 1;
-    p.eps = (R(1.5, 9) * TAU) / T;
-    p.m = rng() < 0.35 ? 0 : R(0.12, 0.45);
+    const top = ghost ? 4 : 5;
+    p.a = RI(1, top);
+    p.b = RI(1, top);
+    if (p.b === p.a) p.b = (p.a % top) + 1;
+    p.eps = ghost ? (R(0.6, 3.5) * TAU) / T : (R(1.5, 9) * TAU) / T;
+    p.m = rng() < (ghost ? 0.5 : 0.35) ? 0 : R(0.12, ghost ? 0.35 : 0.45);
     p.g = rng() < 0.5 ? RI(2, 7) : R(0.3, 2.4);
     p.ph1 = R(0, TAU);
     p.ph2 = R(0, TAU);
     p.ps1 = R(0, TAU);
     p.ps2 = R(0, TAU);
     p.norm = 1 / (1 + p.m);
-    p.rotDrift = R(0, 0.12) / T;
+    p.rotDrift = R(0, ghost ? 0.25 : 0.12) / T;
   } else {
     // swept figure — the exposure drags the figure through space
     p.mode = "sweep";
     p.a = RI(1, 3);
     p.b = RI(1, 3);
     if (p.b === p.a) p.b = (p.a % 3) + 1;
-    p.eps = (R(7, 24) * TAU) / T;
-    p.m = R(0, 0.3);
+    p.eps = ghost ? (R(2, 9) * TAU) / T : (R(7, 24) * TAU) / T;
+    p.m = R(0, ghost ? 0.25 : 0.3);
     p.g = R(0.3, 2.0);
     p.ph1 = R(0, TAU);
     p.ph2 = R(0, TAU);
     p.ps1 = R(0, TAU);
     p.ps2 = R(0, TAU);
-    p.rotDrift = R(0.4, 2.2) / T;
+    p.rotDrift = ghost ? R(0.25, 1.4) / T : R(0.4, 2.2) / T;
     p.ampK = R(0.8, 1.6);
     p.ampPh = R(0, TAU);
     p.norm = 1 / (1 + p.m);
   }
 
-  // filter wheel
+  // a second-harmonic partial stacked into the deflection — Laposky's
+  // extra oscillators. Multiplies the shape families without densifying.
+  if (ghost && p.mode !== "spiral" && rng() < 0.45) {
+    p.h2 = { k: RI(2, 5), amp: R(0.1, 0.3), ph: R(0, TAU), ph2: R(0, TAU) };
+  }
+
+  // filter wheel — ghosts lean monochrome, like the source photographs
   const pr = rng();
-  if (p.mode === "sweep" && rng() < 0.5) p.pal = "fire";
+  if (ghost) {
+    p.pal =
+      pr < 0.42
+        ? "mono"
+        : pr < 0.62
+          ? "redblue"
+          : pr < 0.82
+            ? "fire"
+            : "phosphor";
+  } else if (p.mode === "sweep" && rng() < 0.5) p.pal = "fire";
   else if (p.mode === "am" && rng() < 0.45) p.pal = "mono";
   else
     p.pal =
@@ -229,7 +277,20 @@ function makeParams(rng) {
             ? "fire"
             : "phosphor";
 
-  p.glowGain = R(0.75, 1.25);
+  // beam and film character: ghosts get a soft wide beam, restrained
+  // auto-exposure (veils stay grey, only caustics burn out), heavy halation
+  p.beamJit = ghost ? R(1.8, 4.5) : R(0.9, 1.4);
+  p.glowJit = ghost ? R(3.5, 7) : 2.6;
+  p.expT = ghost ? R(1.05, 1.9) : 2.8;
+  p.glowGain = ghost ? R(1.1, 2.1) : R(0.75, 1.25);
+  if (ghost && rng() < 0.22) {
+    // Z-axis stipple: a third oscillator chops the beam into dashes
+    p.stip = {
+      f: RI(10, 36),
+      c: Math.cos(Math.PI * R(0.45, 0.72)),
+      ph: R(0, TAU),
+    };
+  }
   p.no = RI(1, 1199);
   return p;
 }
@@ -311,7 +372,15 @@ function createExposure(seed, size, total, inks) {
   let by = 0;
   function beam(tt) {
     let x, y;
-    if (P.mode === "am") {
+    if (P.mode === "spiral") {
+      const u = tt / P.T;
+      const r =
+        Math.exp(-P.decay * u) *
+        (1 + P.wobble * Math.sin(P.wobF * tt)) *
+        P.norm;
+      x = Math.sin(tt + P.eps * tt) * r + P.driftX * u;
+      y = Math.sin(tt + P.beta) * r + P.driftY * u;
+    } else if (P.mode === "am") {
       const ph = P.q * tt + P.eps * tt + P.phm;
       x = Math.sin(tt) * (1 + P.rho * Math.sin(ph)) * P.norm;
       y = Math.sin(tt + P.beta) * (1 + P.rho * Math.sin(ph + P.gam)) * P.norm;
@@ -329,6 +398,11 @@ function createExposure(seed, size, total, inks) {
         x *= 0.62 + 0.38 * Math.sin(Math.PI * P.ampK * u + P.ampPh);
         y *= 0.62 + 0.38 * Math.sin(Math.PI * P.ampK * u + P.ampPh + 1.2);
       }
+    }
+    if (P.h2) {
+      const hn = 1 / (1 + P.h2.amp);
+      x = (x + P.h2.amp * Math.sin(P.h2.k * tt + P.h2.ph)) * hn;
+      y = (y + P.h2.amp * Math.sin(P.h2.k * tt + P.h2.ph2)) * hn;
     }
     const rot = P.rot0 + P.rotDrift * tt;
     const c = Math.cos(rot);
@@ -426,20 +500,22 @@ function createExposure(seed, size, total, inks) {
       const u = exposure.done / total;
       wheel(u);
       beam(t);
-      const px = cx + bx * amp + g3() * 1.1 * jit;
-      const py = cy + by * amp + g3() * 1.1 * jit;
-      splat3(core, S, px, py, fR, fG, fB);
+      let e = 1;
+      if (P.stip && Math.sin(P.stip.f * t + P.stip.ph) < P.stip.c) e = 0.12;
+      const px = cx + bx * amp + g3() * P.beamJit * jit;
+      const py = cy + by * amp + g3() * P.beamJit * jit;
+      splat3(core, S, px, py, fR * e, fG * e, fB * e);
       splat3(
         glow,
         G,
-        px * gs + g3() * 2.6 * jit,
-        py * gs + g3() * 2.6 * jit,
-        fR,
-        fG,
-        fB
+        px * gs + g3() * P.glowJit * jit,
+        py * gs + g3() * P.glowJit * jit,
+        fR * e,
+        fG * e,
+        fB * e
       );
-      splat1(bands[bandA], S, px, py, wA);
-      if (bandB >= 0) splat1(bands[bandB], S, px, py, wB);
+      splat1(bands[bandA], S, px, py, wA * e);
+      if (bandB >= 0) splat1(bands[bandB], S, px, py, wB * e);
       t += dt;
       exposure.done++;
     }
@@ -505,6 +581,55 @@ function writeMaster(px, band, W, e) {
   }
 }
 
+// reflective ink color straight from hex — proof uses paper physics
+function hexToReflect(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+const PAPER_HEX = "#faf8f3"; // warm white stock
+const PAPER = hexToReflect(PAPER_HEX);
+const PROOF_BLACK = hexToReflect("#21201f"); // no inks picked -> riso Black
+
+// print proof: translucent ink layers multiplied over white paper, with a
+// little deterministic per-drum misregistration
+function writeProof(px, exp, W) {
+  const bands = exp.bands;
+  const N = bands.length;
+  const K = (LUT_N / LUT_MAX) * percentileBands(bands, W, 2.2);
+  const inks = exp.P.inks
+    ? exp.P.inks.map((ink) => hexToReflect(ink.hex))
+    : bands.map(() => PROOF_BLACK);
+  const mr = mulberry32(exp.seed ^ 0x9e3779b9);
+  const mis = inks.map(() => [
+    Math.round((mr() * 2 - 1) * 3 * (W / 1200)),
+    Math.round((mr() * 2 - 1) * 3 * (W / 1200)),
+  ]);
+  for (let y = 0, j = 0; y < W; y++) {
+    for (let x = 0; x < W; x++, j += 4) {
+      let r = PAPER[0];
+      let g = PAPER[1];
+      let b = PAPER[2];
+      for (let n = 0; n < N; n++) {
+        const sx = x - mis[n][0];
+        const sy = y - mis[n][1];
+        if (sx < 0 || sy < 0 || sx >= W || sy >= W) continue;
+        const a = bands[n][sy * W + sx] * K;
+        const c = LUT8[a < LUT_N - 1 ? a | 0 : LUT_N - 1] / 255;
+        if (!c) continue;
+        const ink = inks[n];
+        r *= 1 - c + c * ink[0];
+        g *= 1 - c + c * ink[1];
+        b *= 1 - c + c * ink[2];
+      }
+      px[j] = r * 255;
+      px[j + 1] = g * 255;
+      px[j + 2] = b * 255;
+      px[j + 3] = 255;
+    }
+  }
+}
+
 function makePlane(size) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -517,7 +642,16 @@ function makePlane(size) {
 }
 
 function makeMapper(coreSize, glowSize) {
-  return { core: makePlane(coreSize), glow: makePlane(glowSize) };
+  return {
+    core: makePlane(coreSize),
+    glow: makePlane(glowSize),
+    proof: makePlane(coreSize),
+  };
+}
+
+function proofMap(mapper, exp) {
+  writeProof(mapper.proof.data.data, exp, exp.S);
+  mapper.proof.ctx.putImageData(mapper.proof.data, 0, 0);
 }
 
 function toneMap(mapper, exp) {
@@ -525,7 +659,7 @@ function toneMap(mapper, exp) {
     mapper.core.data.data,
     exp.core,
     exp.S,
-    percentile90(exp.core, exp.S, 2.8)
+    percentile90(exp.core, exp.S, exp.P.expT)
   );
   writeRGB(
     mapper.glow.data.data,
@@ -575,6 +709,7 @@ const MODE_NAMES = {
   am: "amplitude-modulated carrier",
   liss: "lissajous",
   sweep: "swept figure",
+  spiral: "damped spiral",
 };
 const PALETTE_NAMES = {
   mono: "monochrome",
@@ -584,15 +719,23 @@ const PALETTE_NAMES = {
 };
 
 function describe(P, seed) {
-  const ratio = P.mode === "am" ? `1:1 carrier · q ${P.q}` : `${P.a}:${P.b}`;
+  const ratio =
+    P.mode === "am"
+      ? `1:1 carrier · q ${P.q}`
+      : P.mode === "spiral"
+        ? "1:1 damped"
+        : `${P.a}:${P.b}`;
   const palette = P.inks
     ? P.inks.map((ink) => ink.name.toLowerCase()).join(" → ") +
       (P.inks.length > 1 ? " wheel" : " ink")
     : PALETTE_NAMES[P.pal];
+  const character = P.silk ? " · silk" : P.ghost ? " · ghost" : "";
+  const stippled = P.stip ? " · stippled" : "";
+  const harmonic = P.h2 ? ` · +${P.h2.k}f` : "";
   return {
     no: P.no,
     seed: seedHex(seed),
-    settings: `${MODE_NAMES[P.mode]} · ${ratio} · ${palette} · ${P.cycles} cycles`,
+    settings: `${MODE_NAMES[P.mode]} · ${ratio}${harmonic} · ${palette} · ${P.cycles} cycles${character}${stippled}`,
   };
 }
 
@@ -614,15 +757,70 @@ function App() {
     () => parseHash(window.location.hash)?.inks ?? []
   );
   const [inksOpen, setInksOpen] = useState(false);
+  // paper view is the default — the piece is headed for white stock
+  const [proof, setProof] = useState(true);
+  const [grid, setGrid] = useState(() =>
+    gridForSeeds(parseHash(window.location.hash)?.seeds.length ?? 1)
+  );
 
   const inkSelRef = useRef(inkSel);
+  const proofRef = useRef(true);
+  const gridRef = useRef(grid);
+  const cellsRef = useRef(null); // contact-sheet exposures when grid > 1
+  const lastHashRef = useRef("");
+  const clickTimerRef = useRef(0);
+
+  // draw one exposure (phosphor or proof) into a square region
+  const drawTile = useCallback((ctx, exp, mapper, x, y, size) => {
+    if (proofRef.current) {
+      proofMap(mapper, exp);
+      ctx.drawImage(mapper.proof.canvas, x, y, size, size);
+      return;
+    }
+    toneMap(mapper, exp);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.drawImage(mapper.core.canvas, x, y, size, size);
+    ctx.drawImage(mapper.glow.canvas, x, y, size, size);
+    ctx.globalCompositeOperation = "source-over";
+  }, []);
+
+  const drawScene = useCallback(
+    (ctx, w, h) => {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.fillStyle = proofRef.current ? PAPER_HEX : "#000";
+      ctx.fillRect(0, 0, w, h);
+      const side = Math.min(w, h);
+      const ox = (w - side) / 2;
+      const oy = (h - side) / 2;
+      const cells = cellsRef.current;
+      if (cells) {
+        const n = gridRef.current;
+        const gap = Math.round(side * 0.01);
+        const tile = (side - gap * (n - 1)) / n;
+        for (let i = 0; i < cells.length; i++) {
+          drawTile(
+            ctx,
+            cells[i].exp,
+            cells[i].mapper,
+            ox + (i % n) * (tile + gap),
+            oy + ((i / n) | 0) * (tile + gap),
+            tile
+          );
+        }
+        return;
+      }
+      const exp = engineRef.current;
+      const mapper = mapperRef.current;
+      if (exp && mapper) drawTile(ctx, exp, mapper, ox, oy, side);
+    },
+    [drawTile]
+  );
 
   const compositeView = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = ctxRef.current;
-    const exp = engineRef.current;
-    const mapper = mapperRef.current;
-    if (!canvas || !ctx || !exp || !mapper) return;
+    if (!canvas || !ctx) return;
     const dpr = window.devicePixelRatio || 1;
     const w = Math.round(canvas.clientWidth * dpr);
     const h = Math.round(canvas.clientHeight * dpr);
@@ -630,30 +828,28 @@ function App() {
       canvas.width = w;
       canvas.height = h;
     }
-    toneMap(mapper, exp);
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, w, h);
-    const side = Math.min(w, h);
-    const ox = (w - side) / 2;
-    const oy = (h - side) / 2;
-    ctx.globalCompositeOperation = "lighter";
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(mapper.core.canvas, ox, oy, side, side);
-    ctx.drawImage(mapper.glow.canvas, ox, oy, side, side);
-    ctx.globalCompositeOperation = "source-over";
+    drawScene(ctx, w, h);
+  }, [drawScene]);
+
+  // the hash always mirrors what's on screen: one seed or a whole sheet
+  const writeRecipeHash = useCallback(() => {
+    const seeds = cellsRef.current
+      ? cellsRef.current.map((c) => c.seed)
+      : [seedRef.current];
+    const h = buildHash(seeds, inkSelRef.current);
+    lastHashRef.current = h;
+    window.history.replaceState(null, "", h);
   }, []);
 
   const regen = useCallback(
     (seed, writeHash = true) => {
-      seedRef.current = seed >>> 0;
-      if (writeHash) {
-        window.history.replaceState(
-          null,
-          "",
-          buildHash(seedRef.current, inkSelRef.current)
-        );
+      cellsRef.current = null;
+      if (gridRef.current !== 1) {
+        gridRef.current = 1;
+        setGrid(1);
       }
+      seedRef.current = seed >>> 0;
+      if (writeHash) writeRecipeHash();
       const inks = inkSelRef.current.map((idx) => RISO_INKS[idx]);
       engineRef.current = createExposure(
         seedRef.current,
@@ -665,19 +861,92 @@ function App() {
       setProgress(0);
       compositeView();
     },
-    [compositeView]
+    [compositeView, writeRecipeHash]
   );
 
-  const newExposure = useCallback(() => regen(randomSeed()), [regen]);
+  // a contact sheet: n×n seeds developing at once; smaller cells and fewer
+  // samples per cell keep total memory and develop time constant
+  const regenSheet = useCallback(
+    (seeds, writeHash = true) => {
+      const n = gridRef.current;
+      const count = n * n;
+      const size = Math.floor(VIEW_SIZE / n);
+      const inks = inkSelRef.current.map((idx) => RISO_INKS[idx]);
+      cellsRef.current = Array.from({ length: count }, (_, i) => {
+        const seed = seeds?.[i] ?? randomSeed();
+        return {
+          seed,
+          exp: createExposure(
+            seed,
+            size,
+            Math.round(VIEW_SAMPLES / count),
+            inks
+          ),
+          mapper: makeMapper(size, size >> 2),
+        };
+      });
+      if (writeHash) writeRecipeHash();
+      setInfo({ sheet: n });
+      setProgress(0);
+      compositeView();
+    },
+    [compositeView, writeRecipeHash]
+  );
+
+  const newExposure = useCallback(() => {
+    if (cellsRef.current) regenSheet();
+    else regen(randomSeed());
+  }, [regen, regenSheet]);
+
+  const cycleGrid = useCallback(() => {
+    const next = gridRef.current === 1 ? 2 : gridRef.current === 2 ? 4 : 1;
+    gridRef.current = next;
+    setGrid(next);
+    if (next === 1) regen(seedRef.current);
+    else regenSheet();
+  }, [regen, regenSheet]);
+
+  // click deals a new exposure / sheet; in sheet mode we wait a beat in
+  // case it's a double-click, which promotes the cell instead
+  const handleCanvasClick = useCallback(() => {
+    if (!cellsRef.current) {
+      newExposure();
+      return;
+    }
+    clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = setTimeout(() => regenSheet(), 260);
+  }, [newExposure, regenSheet]);
+
+  const handleCanvasDblClick = useCallback(
+    (ev) => {
+      const cells = cellsRef.current;
+      if (!cells) return;
+      clearTimeout(clickTimerRef.current);
+      const rect = canvasRef.current.getBoundingClientRect();
+      const side = Math.min(rect.width, rect.height);
+      const ox = rect.left + (rect.width - side) / 2;
+      const oy = rect.top + (rect.height - side) / 2;
+      const n = gridRef.current;
+      const cx = Math.floor(((ev.clientX - ox) / side) * n);
+      const cy = Math.floor(((ev.clientY - oy) / side) * n);
+      if (cx < 0 || cy < 0 || cx >= n || cy >= n) return;
+      regen(cells[cy * n + cx].seed);
+    },
+    [regen]
+  );
 
   // selecting inks recolors the current figure — same seed, new wheel
   const applyInks = useCallback(
     (next) => {
       inkSelRef.current = next;
       setInkSel(next);
-      regen(seedRef.current);
+      if (cellsRef.current) {
+        regenSheet(cellsRef.current.map((c) => c.seed));
+      } else {
+        regen(seedRef.current);
+      }
     },
-    [regen]
+    [regen, regenSheet]
   );
 
   const toggleInk = useCallback(
@@ -698,19 +967,43 @@ function App() {
     applyInks(Math.random() < 0.5 ? [...pair] : [...pair].reverse());
   }, [applyInks]);
 
+  // proof: how the current recipe prints on white stock (multiplied inks)
+  const toggleProof = useCallback(() => {
+    proofRef.current = !proofRef.current;
+    setProof(proofRef.current);
+    compositeView();
+  }, [compositeView]);
+
   const savePng = useCallback(() => {
+    if (cellsRef.current) {
+      const c = document.createElement("canvas");
+      c.width = VIEW_SIZE;
+      c.height = VIEW_SIZE;
+      drawScene(c.getContext("2d"), VIEW_SIZE, VIEW_SIZE);
+      const n = gridRef.current;
+      downloadCanvas(c, `oscillon-sheet-${n}x${n}.png`);
+      return;
+    }
     const exp = engineRef.current;
     const mapper = mapperRef.current;
     if (!exp || !mapper) return;
+    if (proofRef.current) {
+      proofMap(mapper, exp);
+      downloadCanvas(
+        mapper.proof.canvas,
+        `${fileBase(exp.P, exp.seed)}-proof.png`
+      );
+      return;
+    }
     toneMap(mapper, exp);
     downloadCanvas(
       compositeSquare(mapper, VIEW_SIZE),
       `${fileBase(exp.P, exp.seed)}.png`
     );
-  }, []);
+  }, [drawScene]);
 
   const exportPrintMasters = useCallback(async () => {
-    if (busyRef.current) return;
+    if (busyRef.current || cellsRef.current) return;
     busyRef.current = true;
     try {
       const seed = seedRef.current;
@@ -748,6 +1041,11 @@ function App() {
         await new Promise((r) => setTimeout(r, 350));
         await downloadCanvas(plane.canvas, `${base}-${layer}.png`);
       }
+      const proofPlane = makePlane(size);
+      writeProof(proofPlane.data.data, exp, size);
+      proofPlane.ctx.putImageData(proofPlane.data, 0, 0);
+      await new Promise((r) => setTimeout(r, 350));
+      await downloadCanvas(proofPlane.canvas, `${base}-proof.png`);
     } finally {
       busyRef.current = false;
       setBusy(null);
@@ -760,16 +1058,38 @@ function App() {
     mapperRef.current = makeMapper(VIEW_SIZE, VIEW_SIZE >> 2);
 
     const parsed = parseHash(window.location.hash);
-    regen(parsed ? parsed.seed : randomSeed());
+    if (parsed && gridRef.current > 1) {
+      const n = gridRef.current;
+      regenSheet(parsed.seeds.slice(0, n * n));
+    } else {
+      regen(parsed ? parsed.seeds[0] : randomSeed());
+    }
 
     let frame = 0;
     const loop = () => {
-      const exp = engineRef.current;
-      if (exp && exp.done < exp.total) {
-        const finished = exp.develop(CHUNK);
-        frame++;
-        if (frame % 5 === 0 || finished) compositeView();
-        setProgress(Math.floor((exp.done / exp.total) * 100));
+      // the proof render is heavier, refresh it less often
+      const throttle = proofRef.current ? 12 : 5;
+      const cells = cellsRef.current;
+      if (cells) {
+        const active = cells.filter((c) => c.exp.done < c.exp.total);
+        if (active.length) {
+          const per = Math.max(1, Math.round(CHUNK / active.length));
+          for (const c of active) c.exp.develop(per);
+          frame++;
+          const finished = active.every((c) => c.exp.done >= c.exp.total);
+          if (frame % throttle === 0 || finished) compositeView();
+          setProgress(
+            Math.floor((cells[0].exp.done / cells[0].exp.total) * 100)
+          );
+        }
+      } else {
+        const exp = engineRef.current;
+        if (exp && exp.done < exp.total) {
+          const finished = exp.develop(CHUNK);
+          frame++;
+          if (frame % throttle === 0 || finished) compositeView();
+          setProgress(Math.floor((exp.done / exp.total) * 100));
+        }
       }
       rafRef.current = requestAnimationFrame(loop);
     };
@@ -781,6 +1101,8 @@ function App() {
       if (e.key === "s" || e.key === "S") savePng();
       else if (e.key === "e" || e.key === "E") exportPrintMasters();
       else if (e.key === "i" || e.key === "I") setInksOpen((v) => !v);
+      else if (e.key === "p" || e.key === "P") toggleProof();
+      else if (e.key === "g" || e.key === "G") cycleGrid();
       else if (
         e.key === "n" ||
         e.key === "N" ||
@@ -791,47 +1113,79 @@ function App() {
       }
     };
     const onHash = () => {
-      const parsed = parseHash(window.location.hash);
+      const h = window.location.hash;
+      if (h === lastHashRef.current) return;
+      const parsed = parseHash(h);
       if (!parsed) return;
-      const sameInks =
-        parsed.inks.length === inkSelRef.current.length &&
-        parsed.inks.every((v, i) => v === inkSelRef.current[i]);
-      if (parsed.seed === seedRef.current && sameInks) return;
+      lastHashRef.current = h;
       inkSelRef.current = parsed.inks;
       setInkSel(parsed.inks);
-      regen(parsed.seed, false);
+      const n = gridForSeeds(parsed.seeds.length);
+      if (n > 1) {
+        gridRef.current = n;
+        setGrid(n);
+        regenSheet(parsed.seeds.slice(0, n * n), false);
+      } else {
+        regen(parsed.seeds[0], false);
+      }
     };
     window.addEventListener("resize", onResize);
     window.addEventListener("keydown", onKey);
     window.addEventListener("hashchange", onHash);
     return () => {
       cancelAnimationFrame(rafRef.current);
+      clearTimeout(clickTimerRef.current);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("hashchange", onHash);
     };
-  }, [regen, compositeView, savePng, exportPrintMasters, newExposure]);
+  }, [
+    regen,
+    compositeView,
+    savePng,
+    exportPrintMasters,
+    newExposure,
+    toggleProof,
+    cycleGrid,
+    regenSheet,
+  ]);
 
   return (
-    <main className="oscillon">
+    <main className={`oscillon${proof ? " oscillon--proof" : ""}`}>
       <canvas
         ref={canvasRef}
         className="oscillon__canvas"
         role="img"
         aria-label="Oscillon — a simulated oscilloscope exposure. Click for a new one."
-        onClick={newExposure}
+        onClick={handleCanvasClick}
+        onDoubleClick={handleCanvasDblClick}
       />
-      {info && (
+      {info?.sheet ? (
         <footer className="oscillon__caption">
           <p className="oscillon__caption-line oscillon__caption-line--title">
-            Oscillon No. {info.no}
+            Contact sheet · {info.sheet}×{info.sheet}
           </p>
-          <p className="oscillon__caption-line">{info.settings}</p>
           <p className="oscillon__caption-line">
-            seed {info.seed} · click — new exposure · S — save png · E — print
-            masters · I — inks
+            double-click an exposure to develop it at full size
+          </p>
+          <p className="oscillon__caption-line">
+            click / N — new sheet · G — grid · P — background · I — inks · S —
+            save sheet
           </p>
         </footer>
+      ) : (
+        info && (
+          <footer className="oscillon__caption">
+            <p className="oscillon__caption-line oscillon__caption-line--title">
+              Oscillon No. {info.no}
+            </p>
+            <p className="oscillon__caption-line">{info.settings}</p>
+            <p className="oscillon__caption-line">
+              seed {info.seed} · click — new exposure · S — save png · E — print
+              masters · I — inks · P — background · G — grid
+            </p>
+          </footer>
+        )
       )}
       <div className="oscillon__controls">
         <nav className="oscillon__controls-row" aria-label="Exposure controls">
@@ -854,8 +1208,25 @@ function App() {
           <button
             type="button"
             className="oscillon__button"
+            onClick={toggleProof}
+            aria-pressed={proof}
+            aria-label={`Background: ${proof ? "paper" : "black"}`}
+          >
+            bg · {proof ? "paper" : "black"}
+          </button>
+          <button
+            type="button"
+            className="oscillon__button"
+            onClick={cycleGrid}
+            aria-label={`Grid: ${grid === 1 ? "single" : `${grid} by ${grid}`}`}
+          >
+            grid · {grid === 1 ? "1" : `${grid}×${grid}`}
+          </button>
+          <button
+            type="button"
+            className="oscillon__button"
             onClick={exportPrintMasters}
-            disabled={!!busy}
+            disabled={!!busy || grid > 1}
           >
             print masters
           </button>
