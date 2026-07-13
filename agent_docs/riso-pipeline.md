@@ -7,26 +7,28 @@ the ground truth.
 
 ## URL recipes
 
-`#<seedhex>[/<ink>,<ink>...]` — e.g. `#5072741c/25,11`.
+`#<seed>[,<seed>...][/<ink>,<ink>...]` — e.g. `#5072741c/25,11`; 4 or 16
+seeds restore a contact sheet.
 
 - Seed: 32-bit hex, drives the figure via seeded rng. Same seed = same
   figure forever, under any ink set.
-- Ink part: indices into `RISO_INKS` (src/App.jsx:68), **in drum order**.
+- Ink part: indices into `RISO_INKS` (src/app/oscillon-engine.ts), **in drum order**.
   Order is meaningful — it is both the time order on the filter wheel and
   the print-run order.
-- Parse/build: `parseHash` / `buildHash` (src/App.jsx:142, 138). Selecting
+- Parse/build: `parseRecipeHash` / `buildRecipeHash`
+  (src/app/oscillon-renderer.tsx). Selecting
   inks recolors the current seed (regenerates with the same figure); it
   never mints a new seed.
 
-## Print masters ("E" / print masters button)
+## Print masters (sticky "Print Masters" action)
 
-`exportPrintMasters` (in `App`) re-develops the current recipe offline at
-`VIEW_SIZE × PRINT_SCALE` = 2400px (≈ 8" at 300 dpi) with 4× the beam
+`exportMasters` (src/app/app-actions.ts) re-develops the current recipe
+offline at `PRINT_SIZE` = 2400px (≈ 8" at 300 dpi) with 4× the beam
 samples, then downloads:
 
 1. `<base>-print.png` — full-color emissive composite, for reference.
 2. One greyscale master per separation layer, dark ink on white
-   (`writeMaster`, src/App.jsx:562 — density inverted because the riso
+   (`writeMaster`, src/app/oscillon-engine.ts — density inverted because the riso
    reads master darkness as ink coverage).
 3. `<base>-proof.png` — the paper proof (below) at print size; give this
    to the print shop as the color reference for white stock.
@@ -36,21 +38,21 @@ Separation logic:
 - **Classic palettes** (no inks selected): 3 layers split by time thirds.
 - **Ink mode**: one layer per selected ink, weight-accurate — during
   filter-wheel crossfades a sample splats into both adjacent ink bands with
-  weights summing to 1 (`wheel`, src/App.jsx:357). Files carry the ink name:
+  weights summing to 1 (`wheel`, src/app/oscillon-engine.ts). Files carry the ink name:
   `...-master-1-fluor-pink.png`.
-- All layers share one auto-exposure (`percentileBands`, src/App.jsx:535) so
+- All layers share one auto-exposure (`percentileBands`, src/app/oscillon-engine.ts) so
   relative density across drums survives; never expose layers independently.
 
-## Proof view (P) — printing on white paper
+## Paper view — printing on white paper
 
-The screen composite is emissive (light adds toward white); a riso print on
-white paper is subtractive (ink multiplies toward dark). The proof view
-(`writeProof`, src/App.jsx:587) shows the print: each separation band's
+The phosphor view is emissive (light adds toward white); a riso print on
+white paper is subtractive (ink multiplies toward dark). The default paper
+view (`writeProof`, src/app/oscillon-engine.ts) shows the print: each separation band's
 coverage (same film curve, ~90% max) tints the paper with the ink's
 **reflective** hex, layers multiply, and each drum gets a small
 deterministic misregistration offset derived from the seed. No inks
-selected → all bands proof in riso Black. The whole UI flips to a paper
-theme (`.oscillon--proof`).
+selected → all bands proof in riso Black. Switch views with the View
+section's paper/phosphor segmented control.
 
 Masters are positive (ink = trace) and are already correct for white
 stock. The unbuilt alternative for an emissive look on white paper is a
@@ -60,12 +62,12 @@ struggles with large flat fields (banding/roller marks).
 
 ## Ink data
 
-- `RISO_INKS` (src/App.jsx:68): the Risolve color wheel, 34 named inks.
+- `RISO_INKS` (src/app/oscillon-engine.ts): the Risolve color wheel, 34 named inks.
   Copied from `~/code/onyx/scripts/risograph.ts` — onyx is canonical;
   update there first.
-- `RISO_COMBOS` (src/App.jsx:116): print-proven 2-ink pairs (May 2024
+- `RISO_COMBOS` (src/app/oscillon-engine.ts): print-proven 2-ink pairs (May 2024
   Risolve stock, same source). The "combo" button samples these.
-- `hexToFilter` (src/App.jsx:107) lifts reflective ink hexes toward emission
+- `hexToFilter` (src/app/oscillon-engine.ts) lifts reflective ink hexes toward emission
   for the screen (normalize max channel to 1, clamp ×2.5 so dark inks like
   Black stay visibly dim rather than turning white).
 

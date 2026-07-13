@@ -5,35 +5,33 @@ driven by modulated sine waves deposits light into an accumulation buffer,
 developed with long-exposure film response. Built as the generation and
 separation front end for risograph prints.
 
-React 19 + Vite + SCSS, rendering on plain Canvas2D.
+Built as a [Toolcraft](https://pixelpoint.io/blog/how-to-craft-personal-design-tools-with-toolcraft/)
+app: React 19 + Vite + TypeScript with the Toolcraft runtime shell, and a
+custom Canvas 2D accumulation renderer.
 
 ## Quick Start
 
 ```bash
 npm install
-npm run dev
+npm run dev   # prefers http://127.0.0.1:3002
 ```
 
-Then: **click** for a new exposure · **S** save png · **E** export print
-masters · **I** pick risograph inks. The URL hash (`#seed/inks`) is the full
-recipe — share it or reload it to reproduce a piece exactly.
+Controls live in the panel: Exposure (character/figure filters + seed),
+Contact sheet (1 / 2×2 / 4×4 — double-click a cell to develop it), Inks
+(Risolve drum picker + Combo/Clear), View (paper/phosphor), Background,
+Image Export, and sticky Generate / Export PNG / Print Masters actions.
+The URL hash (`#seed[,seed...][/inks]`) is the full recipe — share it or
+reload it to reproduce a piece or a whole sheet exactly.
 
 ## Available Scripts
 
 ```bash
-npm run dev          # Start dev server (port 8080)
-npm run build        # Build for production
-npm run lint         # Check for errors
-npm run lint:fix     # Fix linting errors
-npm run format       # Format code with Prettier
-npm run preview      # Preview production build
-npm run clean        # Remove build artifacts
+npm run dev            # Dev server (saved port, prefers 3002)
+npm run build          # Typecheck + production build
+npm run verify:quick   # ai:check + validator/unit suite
+npm run test:browser   # Playwright browser acceptance
+npm run verify:final   # Full delivery gate
 ```
-
-## Environment Variables
-
-Copy `.env.example` to `.env.local` and configure as needed. All variables
-must be prefixed with `VITE_`.
 
 ## Docs
 
