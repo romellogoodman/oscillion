@@ -1,8 +1,11 @@
-# Prototype Boilerplate
+# Oscillon
 
-A minimal React boilerplate for rapid prototyping with Claude Code.
+Simulated oscilloscope exposures after Ben Laposky's _Oscillons_ — a beam
+driven by modulated sine waves deposits light into an accumulation buffer,
+developed with long-exposure film response. Built as the generation and
+separation front end for risograph prints.
 
-React 19 + Vite + SCSS with BEM conventions.
+React 19 + Vite + SCSS, rendering on plain Canvas2D.
 
 ## Quick Start
 
@@ -10,6 +13,10 @@ React 19 + Vite + SCSS with BEM conventions.
 npm install
 npm run dev
 ```
+
+Then: **click** for a new exposure · **S** save png · **E** export print
+masters · **I** pick risograph inks. The URL hash (`#seed/inks`) is the full
+recipe — share it or reload it to reproduce a piece exactly.
 
 ## Available Scripts
 
@@ -25,8 +32,13 @@ npm run clean        # Remove build artifacts
 
 ## Environment Variables
 
-Copy `.env.example` to `.env.local` and configure as needed. All variables must be prefixed with `VITE_`.
+Copy `.env.example` to `.env.local` and configure as needed. All variables
+must be prefixed with `VITE_`.
 
-## Project Guidelines
+## Docs
 
-See [CLAUDE.md](CLAUDE.md) for file structure conventions, CSS/SCSS guidelines, and other project-specific instructions.
+- [CLAUDE.md](CLAUDE.md) — project conventions and invariants
+- [agent_docs/rendering-engine.md](agent_docs/rendering-engine.md) — how an
+  exposure is made
+- [agent_docs/riso-pipeline.md](agent_docs/riso-pipeline.md) — seeds, masters,
+  inks, and printing

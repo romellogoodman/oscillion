@@ -1,66 +1,52 @@
-# Project Guidelines
+# Oscillon
 
-This is a React.js app with SCSS styles.
+Simulated oscilloscope exposures after Ben Laposky's Oscillons: a beam driven
+by modulated sine pairs deposits light into accumulation buffers, developed
+with long-exposure film response and a time→hue filter wheel. The screen app
+is a front end — the end product is **risograph prints**, and the export path
+(seeds, separations, masters) is what ultimately matters.
 
-## File Structure
+## Stack & Structure
 
-- All React components should be placed in `src/App.jsx`
-- All styles should be placed in `src/App.scss`
+- React 19 + Vite + SCSS. No other runtime dependencies.
+- Rendering is plain Canvas2D on Float32 buffers — no p5.js or graphics
+  libraries. Don't add any.
+- Single-file layout, intentional for prototyping: all components live in
+  `src/App.jsx`, all styles in `src/App.scss`. Refactor into multiple files
+  only when asked.
 
-This single-file approach is intentional for rapid prototyping. Refactor into multiple files as the prototype grows.
+## Commands
 
-## CSS/SCSS Conventions
+- `npm run dev` — dev server at http://localhost:8080 (opens a browser)
+- `npm run lint` / `npm run lint:fix` — ESLint
+- `npm run format` — Prettier (run it after editing; CI-less repo, no excuses)
+- `npm run build` — production build
 
-- Use BEM (Block Element Modifier) naming methodology for CSS classes
-- Follow the pattern: `.block__element--modifier`
-- Use SCSS nesting with `&` for better organization
-- Leverage CSS custom properties for theming
+There are no tests. Verification = lint + build + loading the app and
+confirming an exposure develops (and reproduces from its URL hash).
 
-### BEM Example
+## Invariants
 
-```scss
-.card {
-  background: var(--color-bg);
-  padding: var(--spacing-2x);
+- **Determinism.** A URL hash (`#seed/inks`) must always reproduce the
+  identical figure. All figure randomness flows from the seeded rng in
+  `createExposure` (src/App.jsx:289) — never `Math.random()`. Film grain
+  (`g3`, src/App.jsx:48) is the only sanctioned exception. When adding
+  parameters, append new `rng()` draws after the existing ones in
+  `makeParams` so old seeds keep their figures.
+- **Masters are ground truth.** The screen is an emissive preview; prints
+  blend subtractively. Engine changes must keep the separation bands
+  weight-accurate (every beam sample's band weights sum to 1).
+- **Ink data mirrors onyx.** The riso ink list and combos come from
+  `~/code/onyx/scripts/risograph.ts` — update there first, then copy here.
 
-  &__header {
-    border-bottom: 1px solid var(--color-text-light);
-  }
+## Conventions
 
-  &__title {
-    font-size: var(--font-size-xl);
+- BEM class naming (`.block__element--modifier`) with SCSS `&` nesting;
+  theming via CSS custom properties defined at the top of `src/App.scss`.
 
-    &--large {
-      font-size: calc(var(--font-size-xl) * 1.5);
-    }
-  }
-}
-```
+## Topic docs — read the relevant one before working in that area
 
-```jsx
-<div className="card">
-  <div className="card__header">
-    <h2 className="card__title card__title--large">Title</h2>
-  </div>
-</div>
-```
-
-## CSS Custom Properties
-
-Available variables defined in `src/App.scss`:
-
-- `--color-text`, `--color-text-light`, `--color-bg`
-- `--font-size-base`, `--font-size-xl`
-- `--spacing-unit`, `--spacing-2x`, `--spacing-3x`
-
-## Environment Variables
-
-- Copy `.env.example` to `.env.local` for local configuration
-- All Vite environment variables must be prefixed with `VITE_`
-- Access in code: `import.meta.env.VITE_API_URL`
-
-Example:
-
-```jsx
-const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
-```
+- `agent_docs/rendering-engine.md` — beam math, buffers, tone mapping,
+  exposure parameters, performance
+- `agent_docs/riso-pipeline.md` — URL recipes, print masters, separations,
+  ink data, print-shop guidance
