@@ -1,8 +1,10 @@
 # Rendering Engine
 
-How an Oscillon gets made, and where to touch it. The engine lives in `apps/tool/src/app/oscillon-engine.ts`;
-the product renderer in `apps/tool/src/app/oscillon-renderer.tsx`; exports in
-`apps/tool/src/app/app-actions.ts`. Grep symbol names for exact locations.
+How an Oscillon gets made, and where to touch it. The engine lives in
+`src/engine/oscillon-engine.ts`; pure-RGBA composing (no canvas) in
+`src/engine/oscillon-raster.ts`; the demo in `src/App.jsx`; the headless
+CLI in `scripts/oscillon-render.ts`. Grep symbol names for exact
+locations.
 
 ## Pipeline
 
@@ -16,25 +18,28 @@ seed ──▶ makeParams (seeded rng) ──▶ createExposure
                         offscreen canvases ──▶ additive composite ──▶ display
 ```
 
-- `createExposure(seed, size, total, inks)` (apps/tool/src/app/oscillon-engine.ts) builds one
-  exposure: params, buffers, and a chunked `develop(n)` closure. The view
+- `createExposure(seed, size, total, inks)` (src/engine/oscillon-engine.ts) builds one
+  exposure: params, buffers, and a chunked `develop(n)` closure. The demo
   runs it incrementally from a rAF loop inside `App` so the film "develops"
-  live; print export runs the same function offline at 2× size, 4× samples.
-- `beam(tt)` (apps/tool/src/app/oscillon-engine.ts) is the instrument: X/Y deflection from
+  live over `DEVELOP_SECONDS` (~12 s — the per-frame sample budget is
+  time-based, so pacing is identical at any refresh rate); the CLI runs
+  the same function offline, at `PRINT_SIZE` (2400px, ~4× the view
+  samples) for masters.
+- `beam(tt)` (src/engine/oscillon-engine.ts) is the instrument: X/Y deflection from
   modulated sine pairs, then a slow rotation. Sampled **uniformly in time**,
   so wherever the beam moves slowly (cusps, folds, tangent edges) more
   samples land per pixel and the trace burns brighter. That is the whole
   aesthetic — don't "optimize" it into arc-length sampling.
-- `wheel(u)` (apps/tool/src/app/oscillon-engine.ts) is the filter wheel: exposure progress
+- `wheel(u)` (src/engine/oscillon-engine.ts) is the filter wheel: exposure progress
   `u ∈ [0,1)` → filter RGB, plus which separation band(s) the sample belongs
   to (`bandA/bandB` with weights summing to 1).
-- `splat3`/`splat1` (apps/tool/src/app/oscillon-engine.ts, 267) deposit bilinearly into the
+- `splat3`/`splat1` (src/engine/oscillon-engine.ts, 267) deposit bilinearly into the
   buffers. `core` is full-res RGB, `glow` is quarter-res RGB with wider
   jitter (halation), `bands` are single-channel per separation layer.
 
 ## Exposure parameters
 
-`makeParams(rng)` (apps/tool/src/app/oscillon-engine.ts) first rolls an **exposure character**,
+`makeParams(rng)` (src/engine/oscillon-engine.ts) first rolls an **exposure character**,
 then one of four instrument modes.
 
 Characters (matched to the Laposky reference photographs):
@@ -73,45 +78,57 @@ is intentionally unseeded — the figure is deterministic, the grain is not.
 
 ## Tone mapping
 
-- Film response `v = 1 − e^(−exposure·density)` via `LUT8` (apps/tool/src/app/oscillon-engine.ts).
+- Film response `v = 1 − e^(−exposure·density)` via `LUT8` (src/engine/oscillon-engine.ts).
 - Auto-exposure pins the 90th percentile of nonzero density
   (`percentile90`); the core target is per-exposure (`P.expT` — ghosts low,
   dense 2.8), glow is 1.2 × `glowGain`.
-- `toneMap` (apps/tool/src/app/oscillon-engine.ts) writes both planes into reusable ImageData;
+- `toneMap` (src/engine/oscillon-engine.ts) writes both planes into reusable ImageData;
   composite is black fill + `globalCompositeOperation: "lighter"`.
-- The **proof view** (`writeProof`, apps/tool/src/app/oscillon-engine.ts) is the subtractive
+- The **proof view** (`writeProof`, src/engine/oscillon-engine.ts) is the subtractive
   sibling: separation bands × reflective ink hexes multiplied over paper
   white, with deterministic per-drum misregistration. See
   riso-pipeline.md.
 
 ## Contact sheets
 
-`sheet.grid` 1 / 2×2 / 4×4: sheet mode creates n² exposures at
-`developSize/n` px with proportionally fewer samples each, so total memory
-and develop time are constant regardless of grid. Double-clicking a cell
-promotes its seed to a single exposure (manual double-tap detection on
-pointerdown in `apps/tool/src/app/oscillon-renderer.tsx` — the runtime canvas shell
-takes pointer capture, so native dblclick never reaches product content).
-Masters export is a no-op in sheet mode; Export PNG exports the sheet.
+Demo: the grid button (or `G`) cycles 1 / 2×2 / 4×4. Sheet mode creates
+n² exposures at `size/n` px with proportionally fewer samples each, so
+total memory and develop time are constant regardless of grid.
+Double-clicking a cell promotes its seed to a single exposure (manual
+double-tap detection on pointerdown in `src/App.jsx`). All sheet seeds
+travel in the hash, comma-separated.
+
+CLI: `--grid CxR` renders letterboxed contact-sheet pages at any
+`--aspect`, logs each cell's seed + settings so pieces can be
+re-rendered exactly, and fills pages via `pickDistinctSeeds`
+(src/engine/oscillon-engine.ts) — seeds are deduped by `figureSignature`
+(mode / ratio / cycles-bucket / harmonic) so a page never repeats a
+figure family. `--masters` applies to single pieces only.
 
 ## Performance notes
 
-- `CHUNK` samples per animation frame (apps/tool/src/app/oscillon-engine.ts); the view exposure is
-  ~1.7M samples ≈ 3 s at 60 fps. The percentile sort runs on ~6k samples per
-  composite — cheap.
+- The view exposure is ~1.7M samples (`VIEW_SAMPLES`); the demo spends
+  them over `DEVELOP_SECONDS` with a per-frame budget of
+  `total · dt / DEVELOP_SECONDS`. The percentile sort runs on ~6k samples
+  per composite — cheap.
 - Buffer memory scales with size²: at 2400px print export, core + bands are
   ~70 MB each, transiently. Don't raise `PRINT_SCALE` past 2 without
   chunking exports differently.
-- The view's mapper canvases are created once and reused (`makeMapper` in
-  `App`'s mount effect); exports create their own throwaway set.
+- The demo's mapper canvases are created once and reused (`makeMapper`
+  in `App`'s mount effect); the CLI has no canvas at all — it composes
+  RGBA directly (`src/engine/oscillon-raster.ts`) and writes PNGs with a
+  dependency-free encoder (node:zlib).
 
-## Toolcraft integration
+## Product surfaces
 
-- All product state lives in Toolcraft runtime values (`exposure.seed`,
-  `sheet.grid`, `sheet.seeds`, `inks.drums`, `view.mode`,
-  `appearance.background`, `export.*`); the renderer keeps only the
-  Float32 buffers in refs (`apps/tool/src/app/oscillon-renderer.tsx`).
-- Actions (Generate / Export PNG / Print Masters / Combo / Clear) route
-  through `onPanelAction` in `apps/tool/src/app/app-actions.ts`.
-- The URL recipe hash is mirrored by the renderer: read once on mount
-  (overriding persisted state), written on every recipe change.
+- **Demo** (`src/App.jsx`): one piece blooming on black; click (or
+  `N`/space) mints a new seed and auto-rotates the ink combo through
+  `RISO_COMBOS`. `S` save png, `P` paper/black, `G` grid. The URL recipe
+  hash is the only persistence: read once on mount, written on every
+  recipe change.
+- **CLI** (`scripts/oscillon-render.ts`, `npm run render -- --help`):
+  seeds/random+filters, inks, views, size/aspect, `--masters`, `--grid`,
+  and `--video` — which develops one exposure incrementally, snapshots
+  each partial develop (`phosphorSquare`/`paperSquare`) as a PNG frame
+  in a temp dir, and stitches with ffmpeg (mp4/webm/gif chosen by
+  extension, `--duration`, `--fps`, `--hold`).

@@ -1,61 +1,60 @@
 # Oscillon
 
-Simulated oscilloscope exposures after Ben Laposky's _Oscillons_ — a beam
-driven by modulated sine waves deposits light into an accumulation buffer,
-developed with long-exposure film response. Built as the generation and
-separation front end for risograph prints.
+Simulated oscilloscope exposures after Ben Laposky's _Oscillons_ — a
+beam driven by modulated sine waves deposits light into an accumulation
+buffer, developed with long-exposure film response. Front end of a
+risograph print pipeline.
 
-A monorepo (npm workspaces):
+**Live demo:** <https://oscillion.romellogoodman.com>
 
-- **`apps/tool`** — the [Toolcraft](https://pixelpoint.io/blog/how-to-craft-personal-design-tools-with-toolcraft/)
-  design tool and the headless CLI renderer, sharing one engine.
-- **`apps/site`** — the original standalone site: one exposure at a
-  time, click for the next.
-
-## Quick Start
+## The demo
 
 ```bash
 npm install
-npm run dev        # the tool  (prefers http://127.0.0.1:3002)
-npm run dev:site   # the site  (http://localhost:8080)
+npm run dev   # http://localhost:8080
 ```
 
-Controls live in the panel: Exposure (character/figure filters + seed),
-Contact sheet (1 / 2×2 / 4×4 — double-click a cell to develop it), Inks
-(Risolve drum picker + Combo/Clear), View (paper/phosphor), Background,
-Image Export, and sticky Generate / Export PNG / Print Masters actions.
-The URL hash (`#seed[,seed...][/inks]`) is the full recipe — share it or
-reload it to reproduce a piece or a whole sheet exactly.
+One exposure at a time, blooming over ~12 seconds on a black phosphor
+screen. **Click** for a new piece — the ink pairing rotates by itself
+through print-proven Risolve combos. The caption shows the piece's
+seed; the URL hash (`#seed[/inks]`) is the full recipe and reproduces
+the piece exactly, here or in the CLI. Quiet extras: `N`/space new
+exposure, `S` save png, `P` paper/black background, `G` contact-sheet
+grid (double-click a cell to develop it).
 
-## Available Scripts
-
-```bash
-npm run dev            # Dev server (saved port, prefers 3002)
-npm run build          # Typecheck + production build
-npm run verify:quick   # ai:check + validator/unit suite
-npm run test:browser   # Playwright browser acceptance
-npm run verify:final   # Full delivery gate
-```
-
-## CLI rendering
-
-`npm run render` drives the same engine headlessly (Node >= 22.6, no
-browser, no native deps):
+## The CLI
 
 ```bash
 npm run render -- --seed 0cb09815 --inks fluor-pink,light-teal
 npm run render -- --random --character silk --view phosphor --size 1600
 npm run render -- --seed 0cb09815 --inks 25,11 --masters --out prints/
 npm run render -- --grid 4x6 --aspect 8.5:11 --size 2550 --out sheets/
+npm run render -- --seed 0cb09815 --inks 25,11 --video bloom.mp4
 ```
 
-`--help` lists everything. Grid mode prints each cell's seed and
-settings so any piece on a contact sheet can be re-rendered exactly.
+`--video` renders the develop bloom itself as an animation (format from
+the extension: `.mp4`, `.webm`, or `.gif`; needs ffmpeg on PATH) with
+`--duration`, `--fps`, and a `--hold` freeze on the finished piece.
+
+Same engine, headless (Node >= 22.6, no browser, no native deps).
+`--help` lists everything. The CLI defaults to the **paper** view
+(white, print-proofed inks) — pass `--view phosphor` for the demo's
+black-screen look. Grid mode prints each cell's seed and settings so
+any piece on a contact sheet can be re-rendered exactly.
+
+## Deploying
+
+The demo deploys to Vercel (project `oscillion`, serving
+[oscillion.romellogoodman.com](https://oscillion.romellogoodman.com)):
+
+```bash
+vercel deploy --prod
+```
 
 ## Docs
 
-- [CLAUDE.md](CLAUDE.md) — project conventions and invariants
-- [agent_docs/rendering-engine.md](agent_docs/rendering-engine.md) — how an
-  exposure is made
-- [agent_docs/riso-pipeline.md](agent_docs/riso-pipeline.md) — seeds, masters,
-  inks, and printing
+- [CLAUDE.md](CLAUDE.md) — layout, invariants
+- [agent_docs/rendering-engine.md](agent_docs/rendering-engine.md) — how
+  an exposure is made
+- [agent_docs/riso-pipeline.md](agent_docs/riso-pipeline.md) — seeds,
+  masters, inks, printing

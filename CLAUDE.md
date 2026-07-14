@@ -2,43 +2,44 @@
 
 Simulated oscilloscope exposures after Ben Laposky's Oscillons: a beam
 driven by modulated sine pairs deposits light into accumulation buffers,
-developed with film response and a time→hue filter wheel. The app is a
-personal design tool; the end product is **risograph prints on white
-paper**, and the export path (seeds, per-drum separations, masters,
-proofs) is what ultimately matters.
+developed with film response and a time→hue filter wheel. The end
+product is **risograph prints on white paper**; Romello separates
+colors in his own app, so renders (not masters) are the usual output.
 
-## Monorepo layout (npm workspaces)
+## Layout (flat, single package)
 
-- `apps/tool` — the Toolcraft design tool **and** the headless CLI
-  (`scripts/oscillon-render.ts`); they share one engine
-  (`apps/tool/src/app/oscillon-engine.ts`). **`apps/tool/AGENTS.md` is the active
-  contract for that subtree** — read it (and `docs/toolcraft/*` there)
-  before touching app code, controls, the renderer, exports, or tests.
-  Never hand-compose runtime surfaces; `src/toolcraft/` is the copied
-  runtime, do not patch it per-app.
-- `apps/site` — the original single-exposure website (click for a new
-  piece), intentionally standalone and self-contained; it keeps its own
-  frozen engine copy in `src/App.jsx` and is NOT kept in seed-parity
-  with the tool.
+- `src/engine/oscillon-engine.ts` — the entire instrument: seeded
+  params, beam physics, accumulation, tone mapping, proofs, masters,
+  ink data. Pure TypeScript, zero deps, no DOM in hot paths.
+- `src/engine/oscillon-raster.ts` — pure RGBA composing (phosphor /
+  paper / master squares, letterboxing). Also environment-free.
+- `src/App.jsx` + `src/App.scss` — the demo site: one exposure slowly
+  blooming (~12s) on black; click = new seed + auto-rotated ink combo.
+  No masters or ink UI here by design.
+- `scripts/oscillon-render.ts` — the CLI (`npm run render -- --help`):
+  seeds/random+filters, inks, views, size/aspect, `--masters`,
+  `--grid CxR` contact sheets with per-cell seed logs, and `--video`
+  (bloom animation via ffmpeg: mp4/webm/gif by extension).
 
-Root scripts proxy the tool: `npm run dev` (tool, port 3002),
-`npm run dev:site` (site, port 8080), `npm run render -- …` (CLI),
-`npm run test` / `verify:quick` / `verify:final` / `test:browser`.
+Commands: `npm run dev` (demo, port 8080) · `npm run render -- …` ·
+`lint` / `build` / `format` · `vercel deploy --prod` (demo →
+oscillion.romellogoodman.com). Node >= 22.6 (CLI uses native
+type-stripping).
 
-## Oscillon invariants (on top of the Toolcraft contract)
+## Invariants
 
 - **Determinism.** A recipe hash (`#seed[,seed...][/inks]`) must always
-  reproduce the identical figure(s). All figure randomness flows from
-  the seeded rng in `apps/tool/src/app/oscillon-engine.ts` — never
-  `Math.random()`. Film grain (`g3`) is the only sanctioned exception.
-  When adding parameters, append new `rng()` draws after the existing
-  ones in `makeParams` so old seeds keep their figures.
-- **Masters are ground truth.** The paper view is a preview; the 2400px
-  print masters (one grey per drum, shared auto-exposure) never resample
-  the preview and must stay pixel-exact. Band weights per beam sample
-  always sum to 1.
-- **Ink data mirrors onyx.** The Risolve ink wheel and proven combos
-  come from `~/code/onyx/scripts/risograph.ts` — update there first.
+  reproduce the identical figure(s) in the demo AND the CLI. All figure
+  randomness flows from the seeded rng in `makeParams`; film grain
+  (`g3`) is the only sanctioned exception. New parameters must APPEND
+  their `rng()` draws after existing ones — and note that object-literal
+  property order IS draw order (a reordered `{k, amp}` literal once
+  broke seed parity).
+- **Masters are ground truth** for print: per-drum greys share one
+  auto-exposure (`percentileBands`); band weights per beam sample sum
+  to 1. Only the CLI exports them now.
+- **Ink data mirrors onyx.** The Risolve wheel and proven combos come
+  from `~/code/onyx/scripts/risograph.ts` — update there first.
 
 ## Topic docs
 
@@ -46,5 +47,3 @@ Root scripts proxy the tool: `npm run dev` (tool, port 3002),
   tone mapping, performance shape
 - `agent_docs/riso-pipeline.md` — recipes, masters, inks, print-shop
   guidance (white paper)
-- `apps/tool/docs/oscillon-renderer-spec.md` — renderer technique matrix
-  and pipeline inventory (mirrored in `apps/tool/src/app/app-performance.ts`)
