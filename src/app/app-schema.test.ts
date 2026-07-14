@@ -22,11 +22,12 @@ describe("appSchema", () => {
     });
     expect(appSchema.panels.layers).toBeUndefined();
     expect(appSchema.panels.timeline).toBeUndefined();
+    expect(appSchema.canvas.draggable).toBe(false);
     expect(appSchema.toolbar).toEqual({
       history: true,
-      radar: true,
+      radar: false,
       theme: true,
-      zoom: true,
+      zoom: false,
     });
   });
 

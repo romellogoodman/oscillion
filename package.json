@@ -19,7 +19,8 @@
     "verify:ui": "npm run test:browser",
     "verify:perf": "npm run test:browser:perf",
     "verify:perf:playwright": "npm run test:browser:perf",
-    "verify:final": "npm run ai:check && npm run test && npm run build && npm run test:browser"
+    "verify:final": "npm run ai:check && npm run test && npm run build && npm run test:browser",
+    "render": "node scripts/oscillon-render.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

@@ -33,6 +33,21 @@ npm run test:browser   # Playwright browser acceptance
 npm run verify:final   # Full delivery gate
 ```
 
+## CLI rendering
+
+`npm run render` drives the same engine headlessly (Node >= 22.6, no
+browser, no native deps):
+
+```bash
+npm run render -- --seed 0cb09815 --inks fluor-pink,light-teal
+npm run render -- --random --character silk --view phosphor --size 1600
+npm run render -- --seed 0cb09815 --inks 25,11 --masters --out prints/
+npm run render -- --grid 4x6 --aspect 8.5:11 --size 2550 --out sheets/
+```
+
+`--help` lists everything. Grid mode prints each cell's seed and
+settings so any piece on a contact sheet can be re-rendered exactly.
+
 ## Docs
 
 - [CLAUDE.md](CLAUDE.md) — project conventions and invariants

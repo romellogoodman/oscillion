@@ -613,7 +613,7 @@ export const appAcceptance: readonly ToolcraftComponentAcceptance[] = [
     componentType: "runtime",
     evidence: "product-output",
     expectedObservable:
-      "Editing Canvas width in runtime Setup re-letterboxes and redevelops the exposure into the new output size.",
+      "Editing Canvas width in runtime Setup re-letterboxes and redevelops the exposure into the new output size, and the fixed workspace re-fits it fully inside the viewport.",
     fixture: "Default 1200x1200 canvas resized to 1600 wide.",
     id: "canvas-sizing",
     kind: "runtime",

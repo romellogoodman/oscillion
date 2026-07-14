@@ -14,6 +14,9 @@ import { MAX_INKS } from "./oscillon-engine";
 
 export const appSchema = defineToolcraft({
   canvas: {
+    // fixed workspace: the exposure sits fitted and centered — no
+    // infinite-canvas panning; the renderer enforces fit-to-viewport
+    draggable: false,
     enabled: true,
     renderScale: true,
     size: { height: 1200, unit: "px", width: 1200 },
@@ -260,8 +263,8 @@ export const appSchema = defineToolcraft({
   settingsTransfer: "auto",
   toolbar: {
     history: true,
-    radar: true,
+    radar: false,
     theme: true,
-    zoom: true,
+    zoom: false,
   },
 });

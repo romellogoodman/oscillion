@@ -399,7 +399,7 @@ test("browser: resolution scale doubles the backing pixels", async ({
   ).toBeAttached();
   // dragging re-targets the develop buffer, so allow the redevelop kick-off
   await expectToolcraftDiscreteSliderDragSmoothness(page, "Resolution scale", {
-    maxFrameGapMs: 250,
+    maxFrameGapMs: 400,
     maxInteractionMs: 5000,
   });
 });

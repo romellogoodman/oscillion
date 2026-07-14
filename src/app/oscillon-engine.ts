@@ -292,7 +292,10 @@ export function makeParams(rng: () => number): ExposureParams {
   // a second-harmonic partial stacked into the deflection — Laposky's
   // extra oscillators. Multiplies the shape families without densifying.
   if (ghost && p.mode !== "spiral" && rng() < 0.45) {
-    p.h2 = { amp: R(0.1, 0.3), k: RI(2, 5), ph: R(0, TAU), ph2: R(0, TAU) };
+    // draw order matters for determinism: k, then amp (reference order)
+    const k = RI(2, 5);
+    const amp = R(0.1, 0.3);
+    p.h2 = { amp, k, ph: R(0, TAU), ph2: R(0, TAU) };
   }
 
   // filter wheel — ghosts lean monochrome, like the source photographs
@@ -325,12 +328,11 @@ export function makeParams(rng: () => number): ExposureParams {
   p.expT = ghost ? R(1.05, 1.9) : 2.8;
   p.glowGain = ghost ? R(1.1, 2.1) : R(0.75, 1.25);
   if (ghost && rng() < 0.22) {
-    // Z-axis stipple: a third oscillator chops the beam into dashes
-    p.stip = {
-      c: Math.cos(Math.PI * R(0.45, 0.72)),
-      f: RI(10, 36),
-      ph: R(0, TAU),
-    };
+    // Z-axis stipple: a third oscillator chops the beam into dashes.
+    // Draw order matters for determinism: f, then duty (reference order).
+    const f = RI(10, 36);
+    const c = Math.cos(Math.PI * R(0.45, 0.72));
+    p.stip = { c, f, ph: R(0, TAU) };
   }
   p.no = RI(1, 1199);
   p.inks = null;
@@ -449,11 +451,38 @@ export function samplesForSize(size: number): number {
   return Math.round(VIEW_SAMPLES * (size / BASE_SIZE) ** 2);
 }
 
+export type ExposureBuffers = {
+  bands: Float32Array[];
+  core: Float32Array;
+  glow: Float32Array;
+};
+
+export function bandCountFor(inkCount: number): number {
+  return inkCount > 0 ? inkCount : CLASSIC_LAYERS;
+}
+
+/** allocate the accumulation buffers for an exposure of the given size */
+export function allocateExposureBuffers(
+  size: number,
+  inkCount: number,
+): ExposureBuffers {
+  const G = size >> 2;
+  return {
+    bands: Array.from(
+      { length: bandCountFor(inkCount) },
+      () => new Float32Array(size * size),
+    ),
+    core: new Float32Array(size * size * 3),
+    glow: new Float32Array(G * G * 3),
+  };
+}
+
 export function createExposure(
   seed: number,
   size: number,
   total: number,
   inks: readonly RisoInk[],
+  buffers?: ExposureBuffers,
 ): Exposure {
   const rng = mulberry32(seed);
   const P = makeParams(rng);
@@ -465,13 +494,10 @@ export function createExposure(
   const S = size;
   const G = S >> 2;
   const jit = S / BASE_SIZE; // grain scales with resolution
-  const core = new Float32Array(S * S * 3);
-  const glow = new Float32Array(G * G * 3);
-  const layerCount = P.inks ? P.inks.length : CLASSIC_LAYERS;
-  const bands = Array.from(
-    { length: layerCount },
-    () => new Float32Array(S * S),
-  );
+  const allocated = buffers ?? allocateExposureBuffers(S, inks.length);
+  const core = allocated.core;
+  const glow = allocated.glow;
+  const bands = allocated.bands;
   const dt = P.T / total;
   let t = 0;
 
@@ -680,7 +706,7 @@ export function percentileBands(
   return target / Math.max(samp[(samp.length * 0.9) | 0], 1e-6);
 }
 
-function writeRGB(
+export function writeRGB(
   px: Uint8ClampedArray,
   buf: Float32Array,
   W: number,
@@ -695,6 +721,7 @@ function writeRGB(
     px[j + 1] = LUT8[a < LUT_N - 1 ? a | 0 : LUT_N - 1];
     a = buf[i + 2] * K;
     px[j + 2] = LUT8[a < LUT_N - 1 ? a | 0 : LUT_N - 1];
+    px[j + 3] = 255;
   }
 }
 
@@ -777,19 +804,36 @@ export function makePlane(size: number): Plane {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("2d context unavailable");
+  // no alpha prefill: every writer sets px[j+3] itself, and skipping the
+  // prefill keeps 16-cell sheet mapper allocation off the long-task list
   const data = ctx.createImageData(size, size);
-  const px = data.data;
-  for (let j = 3; j < px.length; j += 4) px[j] = 255;
   return { canvas, ctx, data };
 }
 
-export type Mapper = { core: Plane; glow: Plane; proof: Plane };
+export type Mapper = {
+  core: Plane;
+  glow: Plane;
+  proof: Plane;
+  /** half-resolution proof used while a develop is still in progress */
+  proofSmall: Plane;
+};
 
 export function makeMapper(coreSize: number, glowSize: number): Mapper {
   return {
     core: makePlane(coreSize),
     glow: makePlane(glowSize),
     proof: makePlane(coreSize),
+    // capped so the per-refresh progress pass stays a short task even
+    // at the 2400px develop cap; the final composite is full resolution
+    proofSmall: makePlane(Math.min(600, Math.max(64, coreSize >> 1))),
+  };
+}
+
+/** auto-exposure gains for the phosphor planes (core + glow) */
+export function toneGains(exp: Exposure): { core: number; glow: number } {
+  return {
+    core: percentile90(exp.core, exp.S, exp.P.expT),
+    glow: percentile90(exp.glow, exp.G, 1.2) * exp.P.glowGain,
   };
 }
 
@@ -821,6 +865,51 @@ export function proofMap(
   mapper.proof.ctx.putImageData(mapper.proof.data, 0, 0);
 }
 
+// progress-quality proof: sample the bands at half resolution so the
+// live develop preview stays a short task; the final composite always
+// rewrites the full-resolution proof
+export function proofMapProgress(
+  mapper: Mapper,
+  exp: Exposure,
+  paper: [number, number, number],
+): void {
+  const small = mapper.proofSmall;
+  const W = small.canvas.width;
+  const px = small.data.data;
+  const bands = exp.bands;
+  const N = bands.length;
+  const S = exp.S;
+  const step = S / W;
+  const K = (LUT_N / LUT_MAX) * percentileBands(bands, S, 2.2);
+  const inks = exp.P.inks
+    ? exp.P.inks.map((ink) => hexToReflect(ink.hex))
+    : bands.map(() => PROOF_BLACK);
+  for (let y = 0, j = 0; y < W; y++) {
+    const sy = Math.min(S - 1, (y * step) | 0);
+    for (let x = 0; x < W; x++, j += 4) {
+      const sx = Math.min(S - 1, (x * step) | 0);
+      let r = paper[0];
+      let g = paper[1];
+      let b = paper[2];
+      const i = sy * S + sx;
+      for (let n = 0; n < N; n++) {
+        const a = bands[n][i] * K;
+        const c = LUT8[a < LUT_N - 1 ? a | 0 : LUT_N - 1] / 255;
+        if (!c) continue;
+        const ink = inks[n];
+        r *= 1 - c + c * ink[0];
+        g *= 1 - c + c * ink[1];
+        b *= 1 - c + c * ink[2];
+      }
+      px[j] = r * 255;
+      px[j + 1] = g * 255;
+      px[j + 2] = b * 255;
+      px[j + 3] = 255;
+    }
+  }
+  small.ctx.putImageData(small.data, 0, 0);
+}
+
 /** draw one developed exposure into a square region of a 2d context */
 export function drawExposureTile(
   ctx: CanvasRenderingContext2D,
@@ -831,8 +920,14 @@ export function drawExposureTile(
   size: number,
   view: "paper" | "phosphor",
   paper: [number, number, number],
+  quality: "final" | "progress" = "final",
 ): void {
   if (view === "paper") {
+    if (quality === "progress") {
+      proofMapProgress(mapper, exp, paper);
+      ctx.drawImage(mapper.proofSmall.canvas, x, y, size, size);
+      return;
+    }
     proofMap(mapper, exp, paper);
     ctx.drawImage(mapper.proof.canvas, x, y, size, size);
     return;

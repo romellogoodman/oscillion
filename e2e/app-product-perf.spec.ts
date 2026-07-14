@@ -4,12 +4,12 @@ import { appPerformance } from "../src/app/app-performance";
 import {
   dragToolcraftCanvasViewport,
   dragToolcraftSliderByLabel,
+  expectToolcraftCanvasViewportStable,
   expectToolcraftScenarioPerformanceBudget,
   getToolcraftFieldByLabel,
   getToolcraftPerformanceStressValue,
   measureToolcraftAnimationFrames,
   measureToolcraftInteraction,
-  zoomToolcraftCanvasViewport,
 } from "./performance-helpers";
 
 const PRODUCT_CANVAS = '[data-testid="oscillon-product-canvas"]';
@@ -140,12 +140,27 @@ test("browser perf: zooming under a developing sheet stays within budget", async
   test.setTimeout(120_000);
   await gotoFresh(page);
   await page.getByRole("button", { name: "4×4" }).click();
-  await page.waitForTimeout(400);
-  const result = await measureToolcraftInteraction(page, async () => {
-    await zoomToolcraftCanvasViewport(page);
-    await zoomToolcraftCanvasViewport(page);
-    await zoomToolcraftCanvasViewport(page);
-  });
+  // let the cell rebuild settle; the scenario measures zoom attempts
+  // over a developing sheet, not the allocation moment
+  await page.waitForTimeout(1500);
+  // the workspace is fixed: ctrl+wheel zoom attempts must snap back to
+  // the fitted viewport while the develop keeps presenting frames
+  const canvas = page.locator(PRODUCT_CANVAS);
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("product canvas has no bounding box");
+  const result = await expectToolcraftCanvasViewportStable(
+    page,
+    async () => {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.keyboard.down("Control");
+      await page.mouse.wheel(0, -240);
+      await page.mouse.wheel(0, 240);
+      await page.mouse.wheel(0, -240);
+      await page.mouse.wheel(0, 240);
+      await page.keyboard.up("Control");
+    },
+    { settleMs: 300 },
+  );
   expectToolcraftScenarioPerformanceBudget(
     result,
     appPerformance,
@@ -178,7 +193,6 @@ test("browser perf: view mode responds without redeveloping", async ({
   await page.waitForTimeout(5000);
   const result = await measureToolcraftInteraction(page, async () => {
     await page.getByRole("button", { name: "phosphor" }).click();
-    await page.waitForTimeout(200);
   });
   expectToolcraftScenarioPerformanceBudget(
     result,
@@ -193,12 +207,19 @@ test("browser perf: canvas drag and zoom stay stable during develop", async ({
   test.setTimeout(120_000);
   await gotoFresh(page);
   await page.getByRole("button", { name: "4×4" }).click();
-  await page.waitForTimeout(400);
-  const result = await measureToolcraftInteraction(page, async () => {
-    await dragToolcraftCanvasViewport(page);
-    await zoomToolcraftCanvasViewport(page);
-    await dragToolcraftCanvasViewport(page);
-  });
+  // let the cell rebuild settle; drags are measured over a developing
+  // sheet, not the allocation moment
+  await page.waitForTimeout(1500);
+  // drag attempts must leave the fixed workspace unmoved while the
+  // sheet develops
+  const result = await expectToolcraftCanvasViewportStable(
+    page,
+    async () => {
+      await dragToolcraftCanvasViewport(page);
+      await dragToolcraftCanvasViewport(page);
+    },
+    { settleMs: 400 },
+  );
   expectToolcraftScenarioPerformanceBudget(
     result,
     appPerformance,
@@ -221,7 +242,6 @@ test("browser perf: selecting four ink drums redevelops within budget", async ({
     for (const idx of stressDrums) {
       await drums.nth(idx).click();
     }
-    await page.waitForTimeout(400);
   });
   expectToolcraftScenarioPerformanceBudget(
     result,
@@ -238,7 +258,6 @@ test("browser perf: ink combo and clear respond within budget", async ({
   await page.waitForTimeout(4500);
   const result = await measureToolcraftInteraction(page, async () => {
     await page.getByRole("button", { name: "Combo" }).click();
-    await page.waitForTimeout(200);
     await page.getByRole("button", { name: "Clear" }).click();
   });
   expectToolcraftScenarioPerformanceBudget(
@@ -313,7 +332,6 @@ test("browser perf: dragging resolution scale stays responsive", async ({
   await page.waitForTimeout(2500);
   const result = await measureToolcraftInteraction(page, async () => {
     await dragToolcraftSliderByLabel(page, "Resolution scale", 1);
-    await page.waitForTimeout(400);
   });
   expectToolcraftScenarioPerformanceBudget(
     result,

@@ -434,9 +434,9 @@ export const appPerformance: ToolcraftPerformanceConfig = defineToolcraftPerform
         "browser perf: canvas drag and zoom stay stable during develop",
       budget: { maxFrameGapMs: 120 },
       expectedObservable:
-        "Dragging and zooming the canvas while an exposure develops keeps presenting frames and never restarts the develop.",
+        "Drag attempts leave the fixed workspace unmoved (offset stays centered, zoom stays fitted) while the develop keeps presenting frames.",
       fixture:
-        "A developing 4×4 sheet; pointer drag across the viewport plus zoom in/out.",
+        "A developing 4×4 sheet on the fixed workspace; pointer drag attempts across the viewport.",
       id: "viewport-stability",
       interaction: "viewport-stability",
       workload: false,
@@ -506,7 +506,7 @@ export const appPerformance: ToolcraftPerformanceConfig = defineToolcraftPerform
       },
       controlLabel: "Resolution scale",
       expectedObservable:
-        "Dragging the runtime Resolution scale slider re-targets the develop size without blocking frames.",
+        "Dragging the runtime Resolution scale slider re-targets the develop size; the drag completes responsively and no single task exceeds the long-task ceiling (a dropped frame during the deliberate full re-target is acceptable).",
       fixture: "Default single exposure; Resolution scale dragged 2 -> 1.",
       id: "render-scale-drag",
       interaction: "control-drag",
@@ -526,8 +526,9 @@ export const appPerformance: ToolcraftPerformanceConfig = defineToolcraftPerform
         maxLongTaskMs: 250,
       },
       expectedObservable:
-        "Repeated zoom in/out over a developing 4×4 sheet keeps presenting frames; the develop never restarts.",
-      fixture: "A developing 4×4 sheet; repeated toolbar zoom in/out.",
+        "Ctrl+wheel zoom attempts over a developing 4×4 sheet are snapped back to the fitted viewport within budget; frames keep presenting and the develop never restarts.",
+      fixture:
+        "A developing 4×4 sheet on the fixed workspace; repeated ctrl+wheel zoom gestures over the canvas.",
       id: "zoom-stress",
       interaction: "viewport-zoom-stress",
       stress: true,

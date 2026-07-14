@@ -6,16 +6,20 @@ import { useToolcraft } from "@/toolcraft/runtime/react";
 import {
   DEVELOP_CHUNK,
   RISO_INKS,
+  allocateExposureBuffers,
   createExposure,
   drawExposureTile,
   hexToReflect,
   makeMapper,
   parseSeedHex,
   pickSeed,
+  proofMapProgress,
   samplesForSize,
   seedHex,
+  toneMap,
   type CharacterFilter,
   type Exposure,
+  type ExposureBuffers,
   type FigureFilter,
   type Mapper,
 } from "./oscillon-engine";
@@ -161,6 +165,69 @@ export function OscillonRenderer(): React.JSX.Element {
   );
   const includeBackground = shouldIncludeToolcraftPreviewBackground({ state });
 
+  // fixed workspace: keep the canvas fitted and centered. The shell's
+  // wheel pan/zoom is not gated by canvas.draggable, so this effect
+  // enforces the fitted viewport whenever zoom or offset deviate.
+  const [viewportSize, setViewportSize] = React.useState({ h: 0, w: 0 });
+  React.useEffect(() => {
+    const viewport =
+      canvasRef.current?.closest<HTMLElement>('[role="application"]') ?? null;
+    if (!viewport) return;
+    const measure = () =>
+      setViewportSize({ h: viewport.clientHeight, w: viewport.clientWidth });
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+
+  const fitZoom = React.useMemo(() => {
+    if (!viewportSize.w || !viewportSize.h) return 100;
+    const margin = 48;
+    const scale = Math.min(
+      (viewportSize.w - margin) / width,
+      (viewportSize.h - margin) / height,
+    );
+    return Math.max(25, Math.min(400, Math.round(scale * 100)));
+  }, [viewportSize, width, height]);
+
+  // swallow wheel pan/zoom before the shell's own capture listener sees
+  // it — a window-capture listener fires first, so no transient zoom
+  // frame is ever committed or rasterized on the fixed workspace
+  React.useEffect(() => {
+    const onWheel = (event: WheelEvent) => {
+      const viewport = canvasRef.current?.closest('[role="application"]');
+      if (
+        viewport &&
+        event.target instanceof Node &&
+        viewport.contains(event.target)
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    window.addEventListener("wheel", onWheel, {
+      capture: true,
+      passive: false,
+    });
+    return () =>
+      window.removeEventListener("wheel", onWheel, { capture: true });
+  }, []);
+
+  const zoom = state.canvas.zoom;
+  const offsetX = state.canvas.offset.x;
+  const offsetY = state.canvas.offset.y;
+  React.useEffect(() => {
+    if (!viewportSize.w || !viewportSize.h) return;
+    if (zoom !== fitZoom || offsetX !== 0 || offsetY !== 0) {
+      dispatch({
+        offset: { x: 0, y: 0 },
+        type: "canvas.setViewport",
+        zoom: fitZoom,
+      });
+    }
+  }, [dispatch, fitZoom, offsetX, offsetY, viewportSize, zoom]);
+
   // on load, a URL recipe hash overrides whatever persistence restored
   const restoredFromHashRef = React.useRef(false);
   React.useEffect(() => {
@@ -226,23 +293,46 @@ export function OscillonRenderer(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedCsv, inkCsv]);
 
-  // (re)build exposures whenever the recipe or develop size changes
+  // (re)build exposures whenever the recipe or develop size changes.
+  // Construction is staged through a time-budgeted queue that the rAF
+  // loop drains, so buffer allocation never blocks a single frame.
   const developSize = developSizeFor(width, height, renderScale);
+  const buildQueueRef = React.useRef<(() => void)[]>([]);
   React.useEffect(() => {
     const n = recipe.grid;
     const count = n * n;
-    if (!recipe.seeds.length) {
-      cellsRef.current = [];
-      return;
-    }
+    cellsRef.current = [];
+    buildQueueRef.current = [];
+    if (!recipe.seeds.length) return;
     const cellSize = Math.max(64, Math.floor(developSize / n));
     const inks = recipe.inks.map((idx) => RISO_INKS[idx]);
     const seeds = recipe.seeds.slice(0, count);
-    cellsRef.current = seeds.map((seed) => ({
-      exp: createExposure(seed, cellSize, samplesForSize(cellSize), inks),
-      mapper: makeMapper(cellSize, cellSize >> 2),
-      seed,
-    }));
+    const queue: (() => void)[] = [];
+    for (const seed of seeds) {
+      let buffers: ExposureBuffers | null = null;
+      let mapper: Mapper | null = null;
+      queue.push(() => {
+        buffers = allocateExposureBuffers(cellSize, inks.length);
+      });
+      queue.push(() => {
+        mapper = makeMapper(cellSize, cellSize >> 2);
+      });
+      queue.push(() => {
+        if (!buffers || !mapper) return;
+        cellsRef.current.push({
+          exp: createExposure(
+            seed,
+            cellSize,
+            samplesForSize(cellSize),
+            inks,
+            buffers,
+          ),
+          mapper,
+          seed,
+        });
+      });
+    }
+    buildQueueRef.current = queue;
   }, [seedCsv, inkCsv, recipe.grid, developSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // develop + composite loop
@@ -254,19 +344,33 @@ export function OscillonRenderer(): React.JSX.Element {
     let frame = 0;
     let needsComposite = true;
 
-    const composite = () => {
-      const w = Math.round(width * renderScale);
-      const h = Math.round(height * renderScale);
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-      }
-      const paper = hexToReflect(backgroundHex);
+    // Incremental compositing keeps long tasks short even under software
+    // rasterization: the background paints once per rebuild (and on final
+    // composites), sheet progress refreshes remap+draw a single rotating
+    // cell, and single-exposure progress refreshes draw one quadrant per
+    // call. Final composites are always full quality and full coverage.
+    let remapCursor = 0;
+    let backingPainted = false;
+
+    const paintBackground = (w: number, h: number) => {
       ctx.clearRect(0, 0, w, h);
       if (includeBackground) {
         ctx.fillStyle = viewMode === "paper" ? backgroundHex : "#000";
         ctx.fillRect(0, 0, w, h);
       }
+      backingPainted = true;
+    };
+
+    const composite = (quality: "final" | "progress") => {
+      const w = Math.round(width * renderScale);
+      const h = Math.round(height * renderScale);
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        backingPainted = false;
+      }
+      if (!backingPainted || quality === "final") paintBackground(w, h);
+      const paper = hexToReflect(backgroundHex);
       const side = Math.min(w, h);
       const ox = (w - side) / 2;
       const oy = (h - side) / 2;
@@ -277,7 +381,7 @@ export function OscillonRenderer(): React.JSX.Element {
       if (n > 1) {
         const gap = Math.round(side * 0.01);
         const tile = (side - gap * (n - 1)) / n;
-        for (let i = 0; i < cells.length; i++) {
+        const drawCell = (i: number, cellQuality: "final" | "progress") => {
           drawExposureTile(
             ctx,
             cells[i].exp,
@@ -287,9 +391,18 @@ export function OscillonRenderer(): React.JSX.Element {
             tile,
             viewMode,
             paper,
+            cellQuality,
           );
+        };
+        if (quality === "progress") {
+          drawCell(remapCursor++ % Math.max(1, cells.length), "progress");
+          return;
         }
-      } else if (cells[0]) {
+        for (let i = 0; i < cells.length; i++) drawCell(i, "final");
+        return;
+      }
+      if (!cells[0]) return;
+      if (quality === "final") {
         drawExposureTile(
           ctx,
           cells[0].exp,
@@ -299,11 +412,84 @@ export function OscillonRenderer(): React.JSX.Element {
           side,
           viewMode,
           paper,
+          "final",
         );
+        return;
       }
+      // single-exposure progress: remap once per rotation, then blit one
+      // quadrant per refresh so software rasterization stays short-task
+      const quad = remapCursor++ % 4;
+      const exp = cells[0].exp;
+      const mapper = cells[0].mapper;
+      let plane;
+      if (viewMode === "paper") {
+        if (quad === 0) proofMapProgress(mapper, exp, paper);
+        plane = mapper.proofSmall;
+      } else {
+        if (quad === 0) toneMap(mapper, exp);
+        plane = mapper.core;
+      }
+      const src = plane.canvas;
+      const half = side / 2;
+      const sx = (quad % 2) * (src.width / 2);
+      const sy = quad > 1 ? src.height / 2 : 0;
+      const dx = ox + (quad % 2) * half;
+      const dy = oy + (quad > 1 ? half : 0);
+      if (viewMode === "phosphor") {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(dx, dy, half, half);
+        const prev = ctx.globalCompositeOperation;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.drawImage(
+          src,
+          sx,
+          sy,
+          src.width / 2,
+          src.height / 2,
+          dx,
+          dy,
+          half,
+          half,
+        );
+        ctx.drawImage(
+          mapper.glow.canvas,
+          (quad % 2) * (mapper.glow.canvas.width / 2),
+          quad > 1 ? mapper.glow.canvas.height / 2 : 0,
+          mapper.glow.canvas.width / 2,
+          mapper.glow.canvas.height / 2,
+          dx,
+          dy,
+          half,
+          half,
+        );
+        ctx.globalCompositeOperation = prev;
+        return;
+      }
+      ctx.drawImage(
+        src,
+        sx,
+        sy,
+        src.width / 2,
+        src.height / 2,
+        dx,
+        dy,
+        half,
+        half,
+      );
     };
 
     const loop = () => {
+      // stage cell construction: a few milliseconds of build work per
+      // frame keeps allocation off the long-task list
+      const queue = buildQueueRef.current;
+      if (queue.length) {
+        const start = performance.now();
+        while (queue.length && performance.now() - start < 8) {
+          queue.shift()?.();
+        }
+        rafRef.current = requestAnimationFrame(loop);
+        return;
+      }
       const cells = cellsRef.current;
       const active = cells.filter((c) => c.exp.done < c.exp.total);
       if (active.length) {
@@ -316,9 +502,10 @@ export function OscillonRenderer(): React.JSX.Element {
         // the paper proof is heavier to write, refresh it less often
         const throttle = viewMode === "paper" ? 12 : 5;
         const finished = active.every((c) => c.exp.done >= c.exp.total);
-        if (frame % throttle === 0 || finished) composite();
+        if (finished) composite("final");
+        else if (frame % throttle === 0) composite("progress");
       } else if (needsComposite) {
-        composite();
+        composite("final");
         needsComposite = false;
       }
       rafRef.current = requestAnimationFrame(loop);

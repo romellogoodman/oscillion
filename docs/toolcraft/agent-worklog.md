@@ -68,6 +68,84 @@ as a reference-runtime clone.
 - Skipped checks: none for first product delivery.
 - Risks: see Risks.
 
+### Iteration 2 — Fixed workspace (remove the infinite canvas)
+
+- Request: "can we remove the infinite canvas?"
+- Task type: canvas/runtime feature (Tier 3).
+- User-visible result: the exposure sits fitted and centered; no
+  pan/zoom world. Drag and wheel attempts are inert; runtime Setup
+  still owns canvas size and resolution scale.
+- Source/reference checked: canvas-shell.tsx wheel/pointer handlers
+  (wheel pan/zoom is not gated by canvas.draggable).
+- Reference inputs: None.
+- Docs/contracts read: core/runtime-boundary.md, assembly-workflow.md,
+  decision-contract rule ids (routed for canvas behavior).
+- Contract rules applied: runtime-shell-required, canvas-surface-
+  preserved, performance-coverage-levels.
+- Decision: schema canvas.draggable false + toolbar radar/zoom off; the
+  renderer enforces fit-to-viewport via canvas.setViewport (ResizeObserver
+  on the shell viewport) and swallows wheel events at window capture so
+  no transient zoom frame is ever rasterized.
+- Alternatives rejected: patching the runtime shell (forbidden);
+  enforcer-only without wheel interception (a transient zoom frame
+  forced a full software re-raster of the 2400px canvas).
+- State/output mapping: canvas.zoom/offset are runtime state snapped to
+  the fitted values; product output unchanged.
+- Files changed: src/app/app-schema.ts, src/app/oscillon-renderer.tsx,
+  src/app/app-performance.ts, e2e/app-product-perf.spec.ts,
+  src/app/app-schema.test.ts, src/app/app-acceptance.ts.
+- Verification: npm run test (239), npm run test:browser (31 passed),
+  targeted perf serial runs; agent-browser measurements (below).
+- Skipped checks: full performance suite not re-gated (post-first-working
+  canvas edit; targeted scenarios measured — see Performance evidence).
+- Risks: zoom clamp floor 25% means canvases larger than ~4x the
+  viewport still crop slightly.
+
+### Iteration 3 — Renderer perf hardening + headless CLI
+
+- Request: perf budget failures under the Playwright fallback; then
+  "can we make a command line that renders the oscillon in a scriptable
+  way … aspect ratio of the canvas and everything?" and "can the cli
+  also render a grid? i want a grid 8.5 x 11 page".
+- Task type: renderer optimization (Tier 3) + repo tooling (CLI).
+- User-visible result: smoother develops (staged buffer allocation via
+  a time-budgeted build queue; incremental composites — sheets refresh
+  one cell per tick, singles one quadrant; progress proofs capped at
+  600px with a full-quality final pass). New `npm run render` CLI:
+  seeds/random+filters, inks by name or index, paper/phosphor views,
+  arbitrary size/aspect, print-set masters, and `--grid CxR` contact
+  sheet pages with per-cell seed logs.
+- Source/reference checked: performance traces + longtask attribution
+  in the agent browser (mapper alpha-prefill and full-page proof
+  rewrites were the long tasks).
+- Reference inputs: None.
+- Docs/contracts read: core/performance.md, performance.md,
+  renderer-technique.md (coalescing non-essential preview work during
+  interaction is sanctioned).
+- Contract rules applied: performance-coverage-levels,
+  renderer-technique-inventory.
+- Decision: pure raster module (src/app/oscillon-raster.ts, DOM-free)
+  shared by the CLI; CLI encodes PNG with node:zlib (no native deps)
+  and runs on Node's native type-stripping.
+- Alternatives rejected: node-canvas (native dependency); worker-based
+  develop (not needed to meet budgets).
+- State/output mapping: CLI mirrors the app exactly — same engine, same
+  recipes; the h2/stip rng draw order was restored to the reference
+  order after the CLI exposed a port regression (seed 0cb09815 rendered
+  +5f instead of the reference +3f).
+- Files changed: src/app/oscillon-engine.ts, src/app/oscillon-raster.ts,
+  src/app/oscillon-renderer.tsx, scripts/oscillon-render.ts,
+  package.json, tsconfig.json (allowImportingTsExtensions).
+- Verification: npm run test (239), npm run test:browser (31 passed),
+  CLI smoke renders (single paper/phosphor, 4:5 aspect, 4x6 letter-page
+  grid, masters set), seed 0cb09815 caption parity with the reference.
+- Skipped checks: full Playwright performance suite retained as CI
+  fallback; a few scenarios are margin-flaky under headless software
+  rasterization (see Performance evidence) while clean on the preferred
+  agent-browser runner.
+- Risks: CLI --develop-size above ~4096 allocates multi-hundred-MB
+  buffers; documented in --help.
+
 ## Decisions
 
 ### Renderer
@@ -174,10 +252,15 @@ Render Pipeline Inventory live in `docs/oscillon-renderer-spec.md`
   (Claude Code controlled Chrome via chrome-devtools MCP, 2026-07-13):
   develop-stress silk seed ce14a048 at the 2400px cap measured max
   frame gap 62ms and max long task 55ms over 180 frames; 4x4 sheet
-  115ms/110ms; view toggle 52ms — all inside the 120ms/250ms/500ms
-  budgets. The Playwright `browser perf:` suite in
-  e2e/app-product-perf.spec.ts is the CI fallback via npm run
-  verify:perf.
+  115ms/110ms; view toggle 52ms; after the fixed-workspace pass the
+  render-scale change measured 9ms max frame gap with zero long tasks
+  and the 4x4 rebuild produced zero long tasks — all inside the
+  120ms/250ms/500ms budgets on the preferred runner.
+- Note: under the Playwright software-rasterization fallback a few
+  responsiveness scenarios sit at the frame-gap margin and flip with
+  machine load; the preferred agent-browser runner is clean on every
+  scenario. The fallback suite (npm run verify:perf) remains the CI
+  gate and the touched-path scenarios pass serially.
 
 ## Risks
 
