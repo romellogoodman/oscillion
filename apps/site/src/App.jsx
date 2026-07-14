@@ -757,14 +757,14 @@ function App() {
     () => parseHash(window.location.hash)?.inks ?? []
   );
   const [inksOpen, setInksOpen] = useState(false);
-  // paper view is the default — the piece is headed for white stock
-  const [proof, setProof] = useState(true);
+  // the demo site defaults to the black phosphor view; paper stays a toggle
+  const [proof, setProof] = useState(false);
   const [grid, setGrid] = useState(() =>
     gridForSeeds(parseHash(window.location.hash)?.seeds.length ?? 1)
   );
 
   const inkSelRef = useRef(inkSel);
-  const proofRef = useRef(true);
+  const proofRef = useRef(false);
   const gridRef = useRef(grid);
   const cellsRef = useRef(null); // contact-sheet exposures when grid > 1
   const lastHashRef = useRef("");
