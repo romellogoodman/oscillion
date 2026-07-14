@@ -5,15 +5,19 @@ driven by modulated sine waves deposits light into an accumulation buffer,
 developed with long-exposure film response. Built as the generation and
 separation front end for risograph prints.
 
-Built as a [Toolcraft](https://pixelpoint.io/blog/how-to-craft-personal-design-tools-with-toolcraft/)
-app: React 19 + Vite + TypeScript with the Toolcraft runtime shell, and a
-custom Canvas 2D accumulation renderer.
+A monorepo (npm workspaces):
+
+- **`apps/tool`** — the [Toolcraft](https://pixelpoint.io/blog/how-to-craft-personal-design-tools-with-toolcraft/)
+  design tool and the headless CLI renderer, sharing one engine.
+- **`apps/site`** — the original standalone site: one exposure at a
+  time, click for the next.
 
 ## Quick Start
 
 ```bash
 npm install
-npm run dev   # prefers http://127.0.0.1:3002
+npm run dev        # the tool  (prefers http://127.0.0.1:3002)
+npm run dev:site   # the site  (http://localhost:8080)
 ```
 
 Controls live in the panel: Exposure (character/figure filters + seed),

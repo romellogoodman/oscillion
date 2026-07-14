@@ -1,0 +1,207 @@
+:root {
+  --color-text: #333;
+  --color-text-light: #666;
+  --color-bg: #fff;
+  --font-size-base: 1rem;
+  --font-size-xl: 2rem;
+  --spacing-unit: 8px;
+  --spacing-2x: 16px;
+  --spacing-3x: 24px;
+
+  // oscillon theme
+  --oscillon-bg: #000;
+  --oscillon-dim: #565656;
+  --oscillon-bright: #8f8f8f;
+  --oscillon-strong: #fff;
+  --oscillon-strong-contrast: #000;
+  --oscillon-line: rgba(255, 255, 255, 0.16);
+  --oscillon-line-hover: rgba(255, 255, 255, 0.4);
+  --oscillon-panel: rgba(0, 0, 0, 0.85);
+  --oscillon-progress: rgba(255, 255, 255, 0.35);
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.oscillon {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--oscillon-bg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-align: left;
+
+  // proof mode: the piece sits on paper, so the chrome flips to print
+  &--proof {
+    background: #faf8f3;
+    --oscillon-dim: #8d877c;
+    --oscillon-bright: #55504a;
+    --oscillon-strong: #1c1a17;
+    --oscillon-strong-contrast: #faf8f3;
+    --oscillon-line: rgba(0, 0, 0, 0.2);
+    --oscillon-line-hover: rgba(0, 0, 0, 0.5);
+    --oscillon-panel: rgba(250, 248, 243, 0.92);
+    --oscillon-progress: rgba(0, 0, 0, 0.3);
+  }
+
+  &__canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+  }
+
+  &__caption {
+    position: absolute;
+    left: var(--spacing-2x);
+    bottom: var(--spacing-2x);
+    line-height: 1.7;
+    color: var(--oscillon-dim);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  &__caption-line {
+    margin: 0;
+
+    &--title {
+      color: var(--oscillon-bright);
+      font-weight: 500;
+    }
+  }
+
+  &__controls {
+    position: absolute;
+    top: var(--spacing-2x);
+    right: var(--spacing-2x);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--spacing-unit);
+  }
+
+  &__controls-row {
+    display: flex;
+    gap: var(--spacing-unit);
+  }
+
+  &__button {
+    padding: 6px 10px;
+    background: transparent;
+    border: 1px solid var(--oscillon-line);
+    color: var(--oscillon-bright);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      color: var(--oscillon-strong);
+      border-color: var(--oscillon-line-hover);
+    }
+
+    &:focus-visible {
+      outline: 1px solid var(--oscillon-line-hover);
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+  }
+
+  &__inks {
+    padding: var(--spacing-2x);
+    background: var(--oscillon-panel);
+    border: 1px solid var(--oscillon-line);
+  }
+
+  &__inks-label {
+    margin: 0 0 var(--spacing-unit);
+    color: var(--oscillon-dim);
+    user-select: none;
+  }
+
+  &__ink-grid {
+    display: grid;
+    grid-template-columns: repeat(9, 20px);
+    gap: 8px;
+  }
+
+  &__ink {
+    position: relative;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: var(--ink);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 50%;
+    cursor: pointer;
+
+    &:hover {
+      transform: scale(1.15);
+    }
+
+    &:focus-visible {
+      outline: 1px solid var(--oscillon-line-hover);
+      outline-offset: 2px;
+    }
+
+    &--selected {
+      box-shadow: 0 0 0 2px var(--oscillon-strong);
+
+      &::after {
+        content: attr(data-order);
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        width: 13px;
+        height: 13px;
+        background: var(--oscillon-strong);
+        border-radius: 50%;
+        color: var(--oscillon-strong-contrast);
+        font-size: 9px;
+        line-height: 13px;
+        text-align: center;
+        letter-spacing: 0;
+      }
+    }
+  }
+
+  &__inks-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-unit);
+    margin-top: var(--spacing-2x);
+  }
+
+  &__status {
+    position: absolute;
+    top: var(--spacing-2x);
+    left: var(--spacing-2x);
+    margin: 0;
+    color: var(--oscillon-bright);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  &__progress {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 2px;
+    background: var(--oscillon-progress);
+    transform: scaleX(var(--oscillon-progress, 0));
+    transform-origin: left;
+    transition:
+      transform 0.12s linear,
+      opacity 0.8s ease 0.4s;
+    pointer-events: none;
+
+    &--done {
+      opacity: 0;
+    }
+  }
+}

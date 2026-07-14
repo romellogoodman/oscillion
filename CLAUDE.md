@@ -7,25 +7,29 @@ personal design tool; the end product is **risograph prints on white
 paper**, and the export path (seeds, per-drum separations, masters,
 proofs) is what ultimately matters.
 
-## This is a Toolcraft app
+## Monorepo layout (npm workspaces)
 
-The repo is a generated Toolcraft app. **AGENTS.md is the active project
-contract** — read it (and the docs it routes to under `docs/toolcraft/`)
-before touching app code, controls, the renderer, exports, or tests.
-Build through `defineToolcraft` / `ToolcraftApp`; never hand-compose
-runtime surfaces. Edit surface: `src/app/*` and `src/routes/*` only —
-`src/toolcraft/` is the copied runtime, do not patch it per-app.
+- `apps/tool` — the Toolcraft design tool **and** the headless CLI
+  (`scripts/oscillon-render.ts`); they share one engine
+  (`apps/tool/src/app/oscillon-engine.ts`). **`apps/tool/AGENTS.md` is the active
+  contract for that subtree** — read it (and `docs/toolcraft/*` there)
+  before touching app code, controls, the renderer, exports, or tests.
+  Never hand-compose runtime surfaces; `src/toolcraft/` is the copied
+  runtime, do not patch it per-app.
+- `apps/site` — the original single-exposure website (click for a new
+  piece), intentionally standalone and self-contained; it keeps its own
+  frozen engine copy in `src/App.jsx` and is NOT kept in seed-parity
+  with the tool.
 
-- `npm run dev` — dev server (prefers port 3002)
-- `npm run verify:quick` — ai:check + validator/unit suite
-- `npm run test:browser` — Playwright acceptance (excludes perf)
-- `npm run verify:final` — full delivery gate
+Root scripts proxy the tool: `npm run dev` (tool, port 3002),
+`npm run dev:site` (site, port 8080), `npm run render -- …` (CLI),
+`npm run test` / `verify:quick` / `verify:final` / `test:browser`.
 
 ## Oscillon invariants (on top of the Toolcraft contract)
 
 - **Determinism.** A recipe hash (`#seed[,seed...][/inks]`) must always
   reproduce the identical figure(s). All figure randomness flows from
-  the seeded rng in `src/app/oscillon-engine.ts` — never
+  the seeded rng in `apps/tool/src/app/oscillon-engine.ts` — never
   `Math.random()`. Film grain (`g3`) is the only sanctioned exception.
   When adding parameters, append new `rng()` draws after the existing
   ones in `makeParams` so old seeds keep their figures.
@@ -42,5 +46,5 @@ runtime surfaces. Edit surface: `src/app/*` and `src/routes/*` only —
   tone mapping, performance shape
 - `agent_docs/riso-pipeline.md` — recipes, masters, inks, print-shop
   guidance (white paper)
-- `docs/oscillon-renderer-spec.md` — renderer technique matrix and
-  pipeline inventory (mirrored in `src/app/app-performance.ts`)
+- `apps/tool/docs/oscillon-renderer-spec.md` — renderer technique matrix
+  and pipeline inventory (mirrored in `apps/tool/src/app/app-performance.ts`)
