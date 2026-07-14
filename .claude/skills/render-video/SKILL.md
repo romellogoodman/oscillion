@@ -14,11 +14,12 @@ extension: `.mp4` (libx264, yuv420p, faststart), `.webm` (vp9), or
 
 ```bash
 npm run render -- --seed <hex> --inks <names-or-indices> --view phosphor \
-  --aspect 16:9 --size 1920 --duration 10 --video <out>.mp4
+  --aspect 16:9 --size 1920 --duration 10 --video ~/Desktop/<out>.mp4
 ```
 
 - **Always pass `--view phosphor` for the black-background look** — the
   CLI defaults to the paper (white) view, even with inks.
+- Render to `~/Desktop` unless the user asks for another destination.
 - `--duration` seconds of bloom (default 8), `--hold` seconds frozen on
   the finished piece (default 1), `--fps` (default 30; gif 15).
 - Dimensions are forced even for yuv420p; the square figure letterboxes
@@ -34,7 +35,8 @@ npm run render -- --seed <hex> --inks <names-or-indices> --view phosphor \
 ## Resolving inks for a picked piece
 
 Every piece is fully described by its recipe `#seed/inkIdx,inkIdx`.
-When picks come from a curation folder (e.g. `~/Desktop/oscillon-picks/`),
+When picks come from a curation folder (wherever the user keeps it —
+ask or look for a folder holding contact sheets and a `pairs.txt`),
 the seed→inks mapping lives in its `pairs.txt` (`<seed> <i>,<i>` per
 line) or in the sheet log's `recipe #...` lines. Ink indices point into
 `RISO_INKS` (src/engine/oscillon-engine.ts); names work too, slugified
