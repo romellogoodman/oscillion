@@ -12,6 +12,7 @@ import {
   hexToReflect,
   makeMapper,
   parseSeedHex,
+  pickDistinctSeeds,
   pickSeed,
   proofMapProgress,
   samplesForSize,
@@ -96,7 +97,7 @@ export function pickSheetSeeds(
     values["exposure.character"] ?? "any",
   ) as CharacterFilter;
   const figure = String(values["exposure.figure"] ?? "any") as FigureFilter;
-  return Array.from({ length: count }, () => pickSeed(character, figure));
+  return pickDistinctSeeds(count, character, figure);
 }
 
 // ------------------------------------------------------- URL recipe hash

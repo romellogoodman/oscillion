@@ -30,6 +30,7 @@ import {
   mulberry32,
   parseSeedHex,
   percentileBands,
+  pickDistinctSeeds,
   pickSeed,
   samplesForSize,
   seedHex,
@@ -217,7 +218,9 @@ function gatherSeeds(count: number): number[] {
     if (parsed === null) fail(`invalid --seed "${args.seed}" (8 hex chars)`);
     listed.unshift(parsed);
   }
-  while (listed.length < count) listed.push(pickSeed(character, figure));
+  if (listed.length < count) {
+    listed.push(...pickDistinctSeeds(count - listed.length, character, figure));
+  }
   return listed.slice(0, count);
 }
 

@@ -202,6 +202,12 @@ export type ExposureParams = {
   driftY?: number;
   h2?: { k: number; amp: number; ph: number; ph2: number };
   stip?: { f: number; c: number; ph: number };
+  axisRatio: number;
+  shear: number;
+  taper?: { w: number; dir: number };
+  scaleJit: number;
+  offX: number;
+  offY: number;
 };
 
 export function makeParams(rng: () => number): ExposureParams {
@@ -335,8 +341,53 @@ export function makeParams(rng: () => number): ExposureParams {
     p.stip = { c, f, ph: R(0, TAU) };
   }
   p.no = RI(1, 1199);
+
+  // figure-vocabulary widening (appended draws, 2026-07-13): breaks the
+  // 1:1-circle monotony with axis anisotropy, shear, and taper, and
+  // varies composition so sheets stop reading as rows of near-twins.
+  p.axisRatio = rng() < 0.4 ? R(0.55, 0.95) : 1;
+  p.shear = rng() < 0.3 ? R(-0.35, 0.35) : 0;
+  p.taper =
+    ghost && rng() < 0.3 ? { dir: rng() < 0.5 ? 1 : -1, w: R(0.25, 0.55) } : undefined;
+  p.scaleJit = R(0.78, 1.02);
+  p.offX = R(-0.08, 0.08);
+  p.offY = R(-0.08, 0.08);
+
   p.inks = null;
   return p;
+}
+
+// sheet picks reroll against a coarse family signature so one page
+// doesn't fill up with near-twin figures
+export function pickDistinctSeeds(
+  count: number,
+  character: CharacterFilter,
+  figure: FigureFilter,
+): number[] {
+  const seen = new Set<string>();
+  const seeds: number[] = [];
+  for (let i = 0; i < count; i++) {
+    let chosen = pickSeed(character, figure);
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const candidate = attempt === 0 ? chosen : pickSeed(character, figure);
+      const sig = figureSignature(makeParams(mulberry32(candidate)));
+      if (!seen.has(sig)) {
+        seen.add(sig);
+        chosen = candidate;
+        break;
+      }
+      chosen = candidate;
+    }
+    seeds.push(chosen);
+  }
+  return seeds;
+}
+
+/** coarse family signature used to de-duplicate sheet picks */
+export function figureSignature(P: ExposureParams): string {
+  const ratio = P.mode === "am" ? `q${P.q}` : `${P.a ?? 1}:${P.b ?? 1}`;
+  const cyclesBucket = P.silk ? "silk" : P.cycles < 30 ? "sparse" : "mid";
+  return `${P.mode}/${ratio}/${cyclesBucket}/${P.h2 ? "h" + P.h2.k : "plain"}`;
 }
 
 // generator filters: constrain what the next exposure rolls. A cheap
@@ -543,6 +594,9 @@ export function createExposure(
       x = (x + P.h2.amp * Math.sin(P.h2.k * tt + P.h2.ph)) * hn;
       y = (y + P.h2.amp * Math.sin(P.h2.k * tt + P.h2.ph2)) * hn;
     }
+    x *= P.axisRatio;
+    if (P.taper) y *= 1 - P.taper.w * ((P.taper.dir * x + 1) * 0.5);
+    if (P.shear) x += P.shear * y;
     const rot = P.rot0 + P.rotDrift * tt;
     const c = Math.cos(rot);
     const s = Math.sin(rot);
